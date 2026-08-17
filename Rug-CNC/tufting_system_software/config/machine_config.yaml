@@ -1,0 +1,54 @@
+# machine_config.yaml
+# --------------------
+# Single source of truth for machine-specific parameters.
+#
+# The Python planner (edge_ai/) reads the [planner] section.
+# The C firmware (firmware/) reads the [machine] and [hardware]
+# sections at startup (see firmware/src/main.c).
+#
+# Update this file to match YOUR machine's mechanical limits before
+# the first real run. Values below are conservative placeholders --
+# raise them gradually once the machine has been characterized.
+
+machine:
+  # Maximum linear speed of the tufting head, in millimeters/second.
+  max_velocity_mm_s: 250.0
+
+  # Maximum acceleration/deceleration, in millimeters/second^2.
+  max_acceleration_mm_s2: 1500.0
+
+  # Physical travel limits of the X/Y gantry, in millimeters.
+  work_area_x_mm: 1000.0
+  work_area_y_mm: 1000.0
+
+  # Real-time control loop frequency, in Hz.
+  # 1000 Hz = 1 control tick per millisecond.
+  control_frequency_hz: 1000
+
+planner:
+  # Default optimization strategy: "nearest_neighbor" or "two_opt".
+  strategy: "two_opt"
+
+  # Safety cap on 2-opt refinement iterations for very large patterns.
+  two_opt_max_iterations: 4000
+
+  units: "mm"
+
+hardware:
+  # Backend used by the firmware HAL (Hardware Abstraction Layer).
+  # "sim"    -> no physical hardware required; logs simulated motor
+  #             commands to a file. Use this for development and CI.
+  # "serial" -> sends real-time G-code-style motion commands to a
+  #             GRBL-compatible microcontroller board over a serial
+  #             (USB) connection. Use this on the physical machine.
+  backend: "sim"
+
+  # Only used when backend == "serial".
+  serial_port: "/dev/ttyUSB0"
+  serial_baud_rate: 115200
+
+  # Digital output pin (on the controller board) that fires the
+  # tufting needle solenoid / clutch. Only used when backend == "serial";
+  # sent as part of the M-code the firmware emits (see
+  # firmware/src/hal_serial.c and ipc/PROTOCOL.md).
+  needle_actuator_pin: "M8"

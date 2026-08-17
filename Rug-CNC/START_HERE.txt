@@ -1,0 +1,15 @@
+ROVEX source (GitHub / mentors)
+================================
+
+This package is CODE ONLY.
+No build/, .dart_tool/, or .exe files.
+
+Mentors — run:
+  cd flutter_tufting_system
+  flutter pub get
+  flutter run -d chrome
+
+Or: flutter_tufting_system\RUN_ME.bat
+
+Do not run main.dart as Dart.
+Default language: English.

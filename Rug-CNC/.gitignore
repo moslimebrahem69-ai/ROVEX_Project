@@ -1,0 +1,49 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.iml
+
+# Logs & temp
+*.log
+*.tmp
+*.bak
+
+# Flutter / Dart (never commit these)
+**/build/
+**/.dart_tool/
+**/.flutter-plugins-dependencies
+**/.pub-cache/
+**/.pub/
+**/coverage/
+**/doc/api/
+**/windows/flutter/ephemeral/
+**/linux/flutter/ephemeral/
+**/macos/Flutter/ephemeral/
+**/ios/Flutter/.last_build_id
+**/android/app/debug/
+**/android/app/profile/
+**/android/app/release/
+app.*.symbols
+app.*.map.json
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+**/.venv/
+**/venv/
+**/.pytest_cache/
+
+# Compiled binaries — rebuild from source
+**/*.exe
+**/firmware/bin/
+
+# Large docs — send PDF separately, not in the repo
+docs/*.pdf
+docs/*.html
+**/WhatsApp Image*
+**/*.jpeg
+**/*.jpg
+!**/assets/**/*.png
