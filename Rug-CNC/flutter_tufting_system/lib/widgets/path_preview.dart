@@ -22,78 +22,102 @@ class PathPreview extends StatelessWidget {
 
     return Container(
       color: HmiColors.bg,
-      child: FutureBuilder<ui.Image?>(
-        future: _decodeImage(designImage),
-        builder: (context, snapshot) {
-          final image = snapshot.data;
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ---------------------------------------------------------
+          // ORIGINAL DESIGN IMAGE
+          // ---------------------------------------------------------
+          if (designImage != null)
+            _DesignImage(bytes: designImage),
 
-          return CustomPaint(
+          // ---------------------------------------------------------
+          // TOOLPATH + NEEDLE
+          // ---------------------------------------------------------
+          CustomPaint(
             painter: _PathPainter(
               points: pts,
               headX: s.x,
               headY: s.y,
               progressIndex: s.pathIndex,
-              designImage: image,
             ),
-            child: pts.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No program loaded\nOpen DESIGN → Optimize → Load to AUTO',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: HmiColors.textMute,
-                        fontSize: 13,
-                      ),
-                    ),
-                  )
-                : Stack(
-                    children: [
-                      Align(
-                        alignment: Alignment.topLeft,
-                        child: Padding(
-                          padding: const EdgeInsets.all(10),
-                          child: Text(
-                            svc.loadedProgramName ?? 'PROGRAM',
-                            style: const TextStyle(
-                              color: HmiColors.textDim,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (colorGroups.isNotEmpty)
-                        Align(
-                          alignment: Alignment.topRight,
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: _ColorLegend(
-                              groups: colorGroups,
-                              activeOrder: activeColor,
-                            ),
-                          ),
-                        ),
-                    ],
+          ),
+
+          // ---------------------------------------------------------
+          // EMPTY STATE
+          // ---------------------------------------------------------
+          if (pts.isEmpty && designImage == null)
+            const Center(
+              child: Text(
+                'No program loaded\nOpen DESIGN → Optimize → Load to AUTO',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: HmiColors.textMute,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+
+          // ---------------------------------------------------------
+          // PROGRAM NAME
+          // ---------------------------------------------------------
+          if (pts.isNotEmpty || designImage != null)
+            Align(
+              alignment: Alignment.topLeft,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: Text(
+                  svc.loadedProgramName ??
+                      svc.designName ??
+                      'PROGRAM',
+                  style: const TextStyle(
+                    color: HmiColors.textDim,
+                    fontSize: 12,
                   ),
-          );
-        },
+                ),
+              ),
+            ),
+
+          // ---------------------------------------------------------
+          // COLOR LEGEND
+          // ---------------------------------------------------------
+          if (colorGroups.isNotEmpty)
+            Align(
+              alignment: Alignment.topRight,
+              child: Padding(
+                padding: const EdgeInsets.all(10),
+                child: _ColorLegend(
+                  groups: colorGroups,
+                  activeOrder: activeColor,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
+}
 
-  static Future<ui.Image?> _decodeImage(
-    Uint8List? bytes,
-  ) async {
-    if (bytes == null || bytes.isEmpty) {
-      return null;
-    }
+/// Displays the original uploaded design image.
+class _DesignImage extends StatelessWidget {
+  final Uint8List bytes;
 
-    try {
-      final codec = await ui.instantiateImageCodec(bytes);
-      final frame = await codec.getNextFrame();
-      return frame.image;
-    } catch (_) {
-      return null;
-    }
+  const _DesignImage({
+    required this.bytes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Image.memory(
+          bytes,
+          fit: BoxFit.contain,
+          filterQuality: FilterQuality.high,
+        ),
+      ),
+    );
   }
 }
 
@@ -168,63 +192,16 @@ class _PathPainter extends CustomPainter {
   final double headX;
   final double headY;
   final int progressIndex;
-  final ui.Image? designImage;
 
   _PathPainter({
     required this.points,
     required this.headX,
     required this.headY,
     required this.progressIndex,
-    required this.designImage,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // ---------------------------------------------------------------
-    // BACKGROUND
-    // ---------------------------------------------------------------
-
-    canvas.drawRect(
-      Offset.zero & size,
-      Paint()..color = HmiColors.bg,
-    );
-
-    // ---------------------------------------------------------------
-    // GRID
-    // ---------------------------------------------------------------
-
-    final grid = Paint()
-      ..color = const Color(0xFFDCE3EA).withValues(alpha: 0.35)
-      ..strokeWidth = 1;
-
-    for (double x = 0; x < size.width; x += 40) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        grid,
-      );
-    }
-
-    for (double y = 0; y < size.height; y += 40) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        grid,
-      );
-    }
-
-    // ---------------------------------------------------------------
-    // ORIGINAL DESIGN IMAGE
-    // ---------------------------------------------------------------
-
-    if (designImage != null) {
-      _drawImage(
-        canvas,
-        size,
-        designImage!,
-      );
-    }
-
     if (points.isEmpty) {
       return;
     }
@@ -338,73 +315,6 @@ class _PathPainter extends CustomPainter {
     );
   }
 
-  void _drawImage(
-    Canvas canvas,
-    Size size,
-    ui.Image image,
-  ) {
-    final imageWidth = image.width.toDouble();
-    final imageHeight = image.height.toDouble();
-
-    if (imageWidth <= 0 || imageHeight <= 0) {
-      return;
-    }
-
-    final imageAspect =
-        imageWidth / imageHeight;
-
-    final areaAspect =
-        size.width / size.height;
-
-    Rect destination;
-
-    // -------------------------------------------------------------
-    // CONTAIN
-    // Shows the entire image without cropping.
-    // -------------------------------------------------------------
-
-    if (imageAspect > areaAspect) {
-      final width = size.width;
-      final height = width / imageAspect;
-
-      destination = Rect.fromLTWH(
-        0,
-        (size.height - height) / 2,
-        width,
-        height,
-      );
-    } else {
-      final height = size.height;
-      final width = height * imageAspect;
-
-      destination = Rect.fromLTWH(
-        (size.width - width) / 2,
-        0,
-        width,
-        height,
-      );
-    }
-
-    // Slight transparency so the path remains clearly visible.
-    final paint = Paint()
-      ..filterQuality = FilterQuality.high
-      ..color = Colors.white.withValues(
-        alpha: 0.92,
-      );
-
-    canvas.drawImageRect(
-      image,
-      Rect.fromLTWH(
-        0,
-        0,
-        imageWidth,
-        imageHeight,
-      ),
-      destination,
-      paint,
-    );
-  }
-
   @override
   bool shouldRepaint(
     covariant _PathPainter old,
@@ -412,7 +322,6 @@ class _PathPainter extends CustomPainter {
     return old.points != points ||
         old.headX != headX ||
         old.headY != headY ||
-        old.progressIndex != progressIndex ||
-        old.designImage != designImage;
+        old.progressIndex != progressIndex;
   }
 }
