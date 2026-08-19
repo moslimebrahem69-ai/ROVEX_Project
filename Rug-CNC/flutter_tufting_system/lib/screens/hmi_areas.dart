@@ -320,7 +320,7 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
                                   fontWeight: FontWeight.w700)),
                           const SizedBox(height: 6),
                           ...SampleProject.catalog.map((p) {
-                            final title = p.title(loc.lang);
+                            final title = p.title;
                             return Material(
                               color: HmiColors.panel,
                               borderRadius: BorderRadius.circular(8),
@@ -348,7 +348,7 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
                                       const SizedBox(width: 10),
                                       Expanded(
                                         child: Text(
-                                          '${p.title(loc.lang)}\n${p.blurb(loc.lang)}',
+                                          '${p.title}\n${p.blurb}',
                                           style: const TextStyle(
                                               color: HmiColors.textDim,
                                               fontSize: 11,

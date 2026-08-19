@@ -137,41 +137,83 @@ class ErrorsAreaBody extends StatelessWidget {
   const ErrorsAreaBody({super.key});
 
   static const _catalog = [
-    ('E001', 'Soft limit', 'محور خارج منطقة العمل', 'Achse außerhalb Arbeitsbereich',
-        'Reduce jog step or re-home. Check work_area in machine_config.'),
-    ('E002', 'Not connected', 'الماكينة غير متصلة', 'Maschine nicht verbunden',
-        'SETUP → CONNECT (SIM or SERIAL COM). Start machine_server.exe.'),
-    ('E003', 'Path empty', 'لا يوجد مسار', 'Pfad leer',
-        'DESIGN → extract path, or PROGRAM → open CSV, then AUTO.'),
-    ('E004', 'EMERGENCY STOP', 'إيقاف طارئ', 'NOT-AUS',
-        'Clear hazard, press RESET, then re-home before Cycle Start.'),
-    ('E005', 'Serial lost', 'انقطع الاتصال التسلسلي', 'Serielle Verbindung verloren',
-        'Check USB/COM cable, baud rate, GRBL power.'),
-    ('E006', 'JOG mode required', 'يلزم وضع التحريك اليدوي', 'JOG-Modus erforderlich',
-        'Select JOG mode before axis jog.'),
-    ('E007', 'AUTO mode required', 'يلزم وضع أوتو', 'AUTO-Modus erforderlich',
-        'Select AUTO before Cycle Start for programs.'),
-    ('E008', 'MDI mode required', 'يلزم وضع MDI', 'MDI-Modus erforderlich',
-        'Select MDI to execute single G/M lines.'),
-    ('E009', 'Needle fault', 'عطل الإبرة', 'Nadel-Fehler',
-        'Check M8/M9 actuator wiring and Z clearance.'),
-    ('E010', 'Not referenced', 'غير معاير', 'Nicht referenziert',
-        'Run HOME / REF before production AUTO.'),
+    (
+      'E001',
+      'Soft limit',
+      'Axis outside work area',
+      'Reduce jog step or re-home. Check work_area in machine_config.',
+    ),
+    (
+      'E002',
+      'Not connected',
+      'Machine is not connected',
+      'SETUP → CONNECT (SIM or SERIAL COM). Start machine_server.exe.',
+    ),
+    (
+      'E003',
+      'Path empty',
+      'No path available',
+      'DESIGN → extract path, or PROGRAM → open CSV, then AUTO.',
+    ),
+    (
+      'E004',
+      'EMERGENCY STOP',
+      'Emergency stop',
+      'Clear hazard, press RESET, then re-home before Cycle Start.',
+    ),
+    (
+      'E005',
+      'Serial lost',
+      'Serial connection lost',
+      'Check USB/COM cable, baud rate, GRBL power.',
+    ),
+    (
+      'E006',
+      'JOG mode required',
+      'JOG mode is required',
+      'Select JOG mode before axis jog.',
+    ),
+    (
+      'E007',
+      'AUTO mode required',
+      'AUTO mode is required',
+      'Select AUTO before Cycle Start for programs.',
+    ),
+    (
+      'E008',
+      'MDI mode required',
+      'MDI mode is required',
+      'Select MDI to execute single G/M lines.',
+    ),
+    (
+      'E009',
+      'Needle fault',
+      'Needle fault',
+      'Check M8/M9 actuator wiring and Z clearance.',
+    ),
+    (
+      'E010',
+      'Not referenced',
+      'Machine is not referenced',
+      'Run HOME / REF before production AUTO.',
+    ),
   ];
 
   @override
   Widget build(BuildContext context) {
     final t = context.watch<LocaleController>().l10n;
-    final lang = context.watch<LocaleController>().lang;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        Text(t.t('errors_title'),
-            style: const TextStyle(
-                color: HmiColors.gold,
-                fontSize: 18,
-                fontWeight: FontWeight.w700)),
+        Text(
+          t.t('errors_title'),
+          style: const TextStyle(
+            color: HmiColors.gold,
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(height: 12),
         for (final e in _catalog)
           Card(
@@ -180,20 +222,29 @@ class ErrorsAreaBody extends StatelessWidget {
             child: ExpansionTile(
               iconColor: HmiColors.gold,
               collapsedIconColor: HmiColors.textDim,
-              title: Text('${e.$1}  ${e.$2}',
-                  style: const TextStyle(
-                      color: HmiColors.text, fontWeight: FontWeight.w700)),
+              title: Text(
+                '${e.$1}  ${e.$2}',
+                style: const TextStyle(
+                  color: HmiColors.text,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               subtitle: Text(
-                lang == AppLang.ar
-                    ? e.$3
-                    : (lang == AppLang.de ? e.$4 : e.$2),
-                style: const TextStyle(color: HmiColors.textDim, fontSize: 12),
+                e.$3,
+                style: const TextStyle(
+                  color: HmiColors.textDim,
+                  fontSize: 12,
+                ),
               ),
               children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-                  child: Text(e.$5,
-                      style: const TextStyle(color: HmiColors.sand)),
+                  child: Text(
+                    e.$4,
+                    style: const TextStyle(
+                      color: HmiColors.sand,
+                    ),
+                  ),
                 ),
               ],
             ),

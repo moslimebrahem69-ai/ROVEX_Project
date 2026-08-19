@@ -27,9 +27,7 @@ class ROVEXApp extends StatelessWidget {
           return MaterialApp(
             title: Branding.fullTitle,
             debugShowCheckedModeBanner: false,
-            locale: Locale(loc.lang == AppLang.ar
-                ? 'ar'
-                : (loc.lang == AppLang.de ? 'de' : 'en')),
+            locale: const Locale('en'),
             theme: ThemeData(
               brightness: Brightness.dark,
               scaffoldBackgroundColor: HmiColors.bg,
