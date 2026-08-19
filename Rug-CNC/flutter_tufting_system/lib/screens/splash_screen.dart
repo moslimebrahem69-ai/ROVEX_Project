@@ -114,20 +114,20 @@ class _SplashScreenState extends State<SplashScreen>
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Container(
-                    width: 140,
-                    height: 140,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: HmiColors.panel,
-                      borderRadius: BorderRadius.circular(24),
-                      border: Border.all(color: HmiColors.border),
-                    ),
-                    child: Image.asset(
-                      'assets/brand/dar_kareem_logo.jpeg',
-                      fit: BoxFit.contain,
-                      filterQuality: FilterQuality.medium,
-                    ),
-                  ),
+                width: 120,
+                              height: 120,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: HmiColors.panel,
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(color: HmiColors.border),
+                ),
+                child: Image.asset(
+                  'assets/brand/rovex_icon.png',
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
                   const SizedBox(height: 28),
                                     const Text(
                     'ROVEX',
