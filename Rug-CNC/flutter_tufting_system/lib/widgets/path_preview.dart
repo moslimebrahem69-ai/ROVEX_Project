@@ -1,6 +1,3 @@
-import 'dart:typed_data';
-import 'dart:ui' as ui;
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -14,6 +11,7 @@ class PathPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svc = context.watch<MachineService>();
+
     final pts = svc.programPoints;
     final s = svc.status;
     final colorGroups = svc.colorGroups;
@@ -25,15 +23,26 @@ class PathPreview extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // ---------------------------------------------------------
+          // =========================================================
           // ORIGINAL DESIGN IMAGE
-          // ---------------------------------------------------------
-          if (designImage != null)
-            _DesignImage(bytes: designImage),
+          // =========================================================
 
-          // ---------------------------------------------------------
-          // TOOLPATH + NEEDLE
-          // ---------------------------------------------------------
+          if (designImage != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.all(40),
+                child: Image.memory(
+                  designImage,
+                  fit: BoxFit.contain,
+                  filterQuality: FilterQuality.high,
+                ),
+              ),
+            ),
+
+          // =========================================================
+          // TOOLPATH + MACHINE HEAD
+          // =========================================================
+
           CustomPaint(
             painter: _PathPainter(
               points: pts,
@@ -43,9 +52,10 @@ class PathPreview extends StatelessWidget {
             ),
           ),
 
-          // ---------------------------------------------------------
+          // =========================================================
           // EMPTY STATE
-          // ---------------------------------------------------------
+          // =========================================================
+
           if (pts.isEmpty && designImage == null)
             const Center(
               child: Text(
@@ -58,9 +68,10 @@ class PathPreview extends StatelessWidget {
               ),
             ),
 
-          // ---------------------------------------------------------
+          // =========================================================
           // PROGRAM NAME
-          // ---------------------------------------------------------
+          // =========================================================
+
           if (pts.isNotEmpty || designImage != null)
             Align(
               alignment: Alignment.topLeft,
@@ -78,9 +89,10 @@ class PathPreview extends StatelessWidget {
               ),
             ),
 
-          // ---------------------------------------------------------
+          // =========================================================
           // COLOR LEGEND
-          // ---------------------------------------------------------
+          // =========================================================
+
           if (colorGroups.isNotEmpty)
             Align(
               alignment: Alignment.topRight,
@@ -98,31 +110,10 @@ class PathPreview extends StatelessWidget {
   }
 }
 
-/// Displays the original uploaded design image.
-class _DesignImage extends StatelessWidget {
-  final Uint8List bytes;
+// ===================================================================
+// COLOR LEGEND
+// ===================================================================
 
-  const _DesignImage({
-    required this.bytes,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(40),
-        child: Image.memory(
-          bytes,
-          fit: BoxFit.contain,
-          filterQuality: FilterQuality.high,
-        ),
-      ),
-    );
-  }
-}
-
-/// Shows detected thread colors and highlights
-/// the color currently under the needle.
 class _ColorLegend extends StatelessWidget {
   final List<ColorGroup> groups;
   final int? activeOrder;
@@ -187,6 +178,10 @@ class _ColorLegend extends StatelessWidget {
   }
 }
 
+// ===================================================================
+// PATH PAINTER
+// ===================================================================
+
 class _PathPainter extends CustomPainter {
   final List<TuftPoint> points;
   final double headX;
@@ -202,13 +197,37 @@ class _PathPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // ===============================================================
+    // GRID
+    // ===============================================================
+
+    final grid = Paint()
+      ..color = const Color(0xFFDCE3EA).withValues(alpha: 0.35)
+      ..strokeWidth = 1;
+
+    for (double x = 0; x < size.width; x += 40) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        grid,
+      );
+    }
+
+    for (double y = 0; y < size.height; y += 40) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y),
+        grid,
+      );
+    }
+
     if (points.isEmpty) {
       return;
     }
 
-    // ---------------------------------------------------------------
-    // PATH BOUNDS
-    // ---------------------------------------------------------------
+    // ===============================================================
+    // FIND PATH BOUNDS
+    // ===============================================================
 
     double minX = points.first.x;
     double maxX = points.first.x;
@@ -222,38 +241,38 @@ class _PathPainter extends CustomPainter {
       if (p.y > maxY) maxY = p.y;
     }
 
-    final spanX =
-        (maxX - minX).abs() < 1
-            ? 1.0
-            : maxX - minX;
+    final spanX = (maxX - minX).abs() < 1
+        ? 1.0
+        : maxX - minX;
 
-    final spanY =
-        (maxY - minY).abs() < 1
-            ? 1.0
-            : maxY - minY;
+    final spanY = (maxY - minY).abs() < 1
+        ? 1.0
+        : maxY - minY;
 
     const pad = 40.0;
 
+    // ===============================================================
+    // MAP MACHINE COORDINATES → SCREEN
+    // ===============================================================
+
     Offset map(double x, double y) {
       final nx = pad +
-          (x - minX) /
-              spanX *
-              (size.width - 2 * pad);
+          ((x - minX) / spanX) *
+              (size.width - (pad * 2));
 
       final ny = size.height -
           pad -
-          (y - minY) /
-              spanY *
-              (size.height - 2 * pad);
+          ((y - minY) / spanY) *
+              (size.height - (pad * 2));
 
       return Offset(nx, ny);
     }
 
-    // ---------------------------------------------------------------
-    // TOOLPATH
-    // ---------------------------------------------------------------
+    // ===============================================================
+    // DRAW TOOLPATH
+    // ===============================================================
 
-    for (var i = 0; i < points.length - 1; i++) {
+    for (int i = 0; i < points.length - 1; i++) {
       final a = map(
         points[i].x,
         points[i].y,
@@ -266,12 +285,11 @@ class _PathPainter extends CustomPainter {
 
       final done = i < progressIndex;
 
-      final threadColor =
-          points[i].colorValue != null
-              ? Color(points[i].colorValue!)
-              : (done
-                  ? HmiColors.modeActive
-                  : HmiColors.accent);
+      final threadColor = points[i].colorValue != null
+          ? Color(points[i].colorValue!)
+          : (done
+              ? HmiColors.modeActive
+              : HmiColors.accent);
 
       final paint = Paint()
         ..color = threadColor.withValues(
@@ -288,9 +306,9 @@ class _PathPainter extends CustomPainter {
       );
     }
 
-    // ---------------------------------------------------------------
-    // NEEDLE / MACHINE HEAD
-    // ---------------------------------------------------------------
+    // ===============================================================
+    // MACHINE HEAD / NEEDLE
+    // ===============================================================
 
     final head = map(
       headX,
