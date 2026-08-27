@@ -24,51 +24,145 @@ class ROVEXApp extends StatelessWidget {
       ],
       child: Consumer<LocaleController>(
         builder: (context, loc, _) {
+          final locale = loc.lang == AppLang.ar
+              ? const Locale('ar')
+              : const Locale('en');
+
           return MaterialApp(
             title: Branding.fullTitle,
             debugShowCheckedModeBanner: false,
-            locale: const Locale('en'),
+
+            // English is the default language.
+            // Arabic switches the app to Arabic.
+            locale: locale,
+
+            // Supported application languages.
+            supportedLocales: const [
+              Locale('en'),
+              Locale('ar'),
+            ],
+
             theme: ThemeData(
               brightness: Brightness.dark,
               scaffoldBackgroundColor: HmiColors.bg,
               colorScheme: const ColorScheme.dark(
-            primary: HmiColors.accent,
-            secondary: HmiColors.softkeyActive,
-            surface: HmiColors.panel,
-            surfaceContainerHighest: HmiColors.panelAlt,
-            outline: HmiColors.border,
-            error: HmiColors.alarm,
-          ),
+                primary: HmiColors.accent,
+                secondary: HmiColors.softkeyActive,
+                surface: HmiColors.panel,
+                surfaceContainerHighest: HmiColors.panelAlt,
+                outline: HmiColors.border,
+                error: HmiColors.alarm,
+              ),
               elevatedButtonTheme: ElevatedButtonThemeData(
-  style: ElevatedButton.styleFrom(
-    backgroundColor: HmiColors.softkey,
-    foregroundColor: HmiColors.text,
-    disabledBackgroundColor: HmiColors.panelAlt,
-    disabledForegroundColor: HmiColors.textMute,
-    elevation: 2,
-    shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(8),
-      side: const BorderSide(
-        color: HmiColors.border,
+                style: ButtonStyle(
+                backgroundColor: WidgetStateProperty.resolveWith<Color>(
+                  (states) {
+                    if (states.contains(WidgetState.disabled)) {
+                     return HmiColors.panelAlt;
+                }
+
+            if (states.contains(WidgetState.pressed)) {
+              return HmiColors.softkeyActive;
+            }
+
+            if (states.contains(WidgetState.hovered)) {
+              return HmiColors.panelAlt;
+            }
+
+                return HmiColors.softkey;
+          },
+        ),
+
+        foregroundColor: WidgetStateProperty.resolveWith<Color>(
+          (states) {
+            if (states.contains(WidgetState.disabled)) {
+          return HmiColors.textMute;
+            }
+
+            return HmiColors.text;
+          },
+        ),
+    
+        overlayColor: WidgetStateProperty.all(
+          HmiColors.accent.withValues(alpha: 0.10),
+        ),
+
+         elevation: WidgetStateProperty.resolveWith<double>(
+           (states) {
+            if (states.contains(WidgetState.pressed)) {
+          return 0;
+            }
+
+            if (states.contains(WidgetState.hovered)) {
+              return 4;
+            }
+
+            return 2;
+          },
+        ),
+    
+    padding: WidgetStateProperty.all(
+      const EdgeInsets.symmetric(
+        horizontal: 20,
+        vertical: 14,
       ),
     ),
-    textStyle: const TextStyle(
-      fontWeight: FontWeight.w700,
+
+    minimumSize: WidgetStateProperty.all(
+      const Size(120, 48),
     ),
+
+    shape: WidgetStateProperty.all(
+      RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: const BorderSide(
+          color: HmiColors.border,
+          width: 1,
+        ),
+      ),
+    ),
+
+    textStyle: WidgetStateProperty.all(
+      const TextStyle(
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.4,
+      ),
+    ),
+
+    animationDuration: const Duration(milliseconds: 120),
   ),
-),
+   ),
               inputDecorationTheme: const InputDecorationTheme(
-                labelStyle: TextStyle(color: HmiColors.textDim),
-                hintStyle: TextStyle(color: HmiColors.textMute),
+                labelStyle: TextStyle(
+                  color: HmiColors.textDim,
+                ),
+                hintStyle: TextStyle(
+                  color: HmiColors.textMute,
+                ),
                 enabledBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: HmiColors.border),
+                  borderSide: BorderSide(
+                    color: HmiColors.border,
+                  ),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderSide: BorderSide(color: HmiColors.gold),
+                  borderSide: BorderSide(
+                    color: HmiColors.gold,
+                  ),
                 ),
               ),
               useMaterial3: true,
             ),
+
+            // Makes the entire application switch between
+            // LTR for English and RTL for Arabic.
+            builder: (context, child) {
+              return Directionality(
+                textDirection: loc.textDirection,
+                child: child ?? const SizedBox.shrink(),
+              );
+            },
+
             home: const SplashScreen(),
           );
         },
