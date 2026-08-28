@@ -172,7 +172,12 @@ class _HmiButtonState extends State<HmiButton> {
           height: widget.height,
           width: widget.fullWidth ? double.infinity : widget.width,
           transform: Matrix4.identity()
-            ..scale(_pressed ? 0.985 : 1.0),
+             ..scaleByDouble(
+               _pressed ? 0.985 : 1.0,
+               _pressed ? 0.985 : 1.0,
+               1.0,
+               1.0,
+             ),
           decoration: BoxDecoration(
             color: _backgroundColor,
             borderRadius: BorderRadius.circular(10),
