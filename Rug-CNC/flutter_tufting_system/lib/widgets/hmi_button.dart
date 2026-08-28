@@ -185,17 +185,20 @@ class _HmiButtonState extends State<HmiButton> {
               color: _borderColor,
               width: _hovered || _pressed ? 1.2 : 1,
             ),
-            boxShadow: _isEnabled
+            boxShadow: _isEnabled && _elevation > 0
                 ? [
                     BoxShadow(
                       color: Colors.black.withValues(
                         alpha: _hovered ? 0.32 : 0.20,
                       ),
                       blurRadius: _hovered ? 8 : 4,
-                      offset: const Offset(0, 2),
-                    ),
-                  ]
-                : null,
+                      offset: Offset(
+                        0,
+                       _elevation * 0.7,
+                  ),
+                ),
+              ]
+            : null,
           ),
           child: Material(
             color: Colors.transparent,
