@@ -17,28 +17,125 @@ class Needle3dAreaBody extends StatelessWidget {
     final s = svc.status;
 
     return Padding(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(t.t('needle3d_title'),
-              style: const TextStyle(
+          // ============================================================
+          // HEADER
+          // ============================================================
+
+          Row(
+            children: [
+              Container(
+                width: 4,
+                height: 22,
+                decoration: BoxDecoration(
                   color: HmiColors.gold,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700)),
-          const SizedBox(height: 8),
-          Text(
-            'X ${s.x.toStringAsFixed(2)}  Y ${s.y.toStringAsFixed(2)}  Z ${s.z.toStringAsFixed(2)} mm  ·  Needle ${s.needle ? "DOWN" : "UP"}',
-            style: const TextStyle(color: HmiColors.textDim),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 9),
+              Expanded(
+                child: Text(
+                  t.t('needle3d_title'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: HmiColors.gold,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
+
+          const SizedBox(height: 7),
+
+          // ============================================================
+          // MACHINE POSITION
+          // ============================================================
+
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: 10,
+              vertical: 7,
+            ),
+            decoration: BoxDecoration(
+              color: HmiColors.panel,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: HmiColors.border,
+              ),
+            ),
+            child: Row(
+              children: [
+                _positionItem(
+                  'X',
+                  s.x.toStringAsFixed(2),
+                ),
+                const SizedBox(width: 14),
+                _positionItem(
+                  'Y',
+                  s.y.toStringAsFixed(2),
+                ),
+                const SizedBox(width: 14),
+                _positionItem(
+                  'Z',
+                  s.z.toStringAsFixed(2),
+                ),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: s.needle
+                        ? HmiColors.alarm.withValues(alpha: 0.15)
+                        : HmiColors.ready.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                      color: s.needle
+                          ? HmiColors.alarm.withValues(alpha: 0.45)
+                          : HmiColors.ready.withValues(alpha: 0.35),
+                    ),
+                  ),
+                  child: Text(
+                    s.needle ? 'NEEDLE DOWN' : 'NEEDLE UP',
+                    style: TextStyle(
+                      color: s.needle
+                          ? HmiColors.alarm
+                          : HmiColors.ready,
+                      fontSize: 9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // ============================================================
+          // 3D WORKSPACE
+          // ============================================================
+
           Expanded(
             child: Container(
+              width: double.infinity,
               decoration: BoxDecoration(
                 color: HmiColors.panelAlt,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: HmiColors.gold.withValues(alpha: 0.35)),
+                border: Border.all(
+                  color: HmiColors.gold.withValues(alpha: 0.28),
+                ),
               ),
+              clipBehavior: Clip.antiAlias,
               child: CustomPaint(
                 painter: _Machine3dPainter(
                   x: s.x,
@@ -54,10 +151,37 @@ class Needle3dAreaBody extends StatelessWidget {
       ),
     );
   }
+
+  Widget _positionItem(String axis, String value) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          axis,
+          style: const TextStyle(
+            color: HmiColors.gold,
+            fontSize: 10,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(width: 4),
+        Text(
+          '$value mm',
+          style: const TextStyle(
+            color: HmiColors.textDim,
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _Machine3dPainter extends CustomPainter {
-  final double x, y, z;
+  final double x;
+  final double y;
+  final double z;
   final bool needleDown;
 
   _Machine3dPainter({
@@ -67,70 +191,373 @@ class _Machine3dPainter extends CustomPainter {
     required this.needleDown,
   });
 
-  Offset iso(double X, double Y, double Z, Size size) {
-    // Simple isometric projection into view
-    final sx = (X - Y) * 0.55;
-    final sy = (X + Y) * 0.28 - Z * 0.7;
-    return Offset(size.width * 0.5 + sx, size.height * 0.62 + sy);
+  // ============================================================
+  // MACHINE BED
+  // ============================================================
+
+  static const double bedWidth = 600.0;
+  static const double bedHeight = 400.0;
+
+  // ============================================================
+  // ISOMETRIC PROJECTION
+  // ============================================================
+
+  Offset _project(
+    double x,
+    double y,
+    double z,
+    Size size,
+    double scale,
+  ) {
+    final isoX = (x - y) * 0.52 * scale;
+    final isoY = (x + y) * 0.25 * scale - z * 0.65 * scale;
+
+    return Offset(
+      size.width * 0.5 + isoX,
+      size.height * 0.53 + isoY,
+    );
   }
+
+  // ============================================================
+  // CALCULATE SCALE TO FIT THE COMPLETE BED
+  // ============================================================
+
+  double _calculateScale(Size size) {
+    final points = [
+      Offset(0, 0),
+      Offset(bedWidth, 0),
+      Offset(bedWidth, bedHeight),
+      Offset(0, bedHeight),
+    ];
+
+    double minX = double.infinity;
+    double maxX = double.negativeInfinity;
+    double minY = double.infinity;
+    double maxY = double.negativeInfinity;
+
+    for (final point in points) {
+      final px = (point.dx - point.dy) * 0.52;
+      final py = (point.dx + point.dy) * 0.25;
+
+      minX = px < minX ? px : minX;
+      maxX = px > maxX ? px : maxX;
+      minY = py < minY ? py : minY;
+      maxY = py > maxY ? py : maxY;
+    }
+
+    final projectedWidth = maxX - minX;
+    final projectedHeight = maxY - minY;
+
+    const horizontalPadding = 50.0;
+    const verticalPadding = 55.0;
+
+    final availableWidth =
+        (size.width - horizontalPadding).clamp(1.0, double.infinity);
+
+    final availableHeight =
+        (size.height - verticalPadding).clamp(1.0, double.infinity);
+
+    final scaleX = availableWidth / projectedWidth;
+    final scaleY = availableHeight / projectedHeight;
+
+    return scaleX < scaleY ? scaleX : scaleY;
+  }
+
+  // ============================================================
+  // PAINT
+  // ============================================================
 
   @override
   void paint(Canvas canvas, Size size) {
-    final frame = Paint()
-      ..color = HmiColors.border
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    final bed = Paint()..color = HmiColors.accent.withValues(alpha: 0.15);
-    final gold = Paint()
-      ..color = HmiColors.gold
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke;
-    final head = Paint()..color = HmiColors.sand;
-    final needle = Paint()
-      ..color = needleDown ? HmiColors.alarm : HmiColors.dro
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round;
+    if (size.width <= 0 || size.height <= 0) {
+      return;
+    }
 
-    // Bed rectangle in machine mm mapped to isometric
-    const W = 600.0, H = 400.0;
-    final b0 = iso(0, 0, 0, size);
-    final b1 = iso(W, 0, 0, size);
-    final b2 = iso(W, H, 0, size);
-    final b3 = iso(0, H, 0, size);
-    final bedPath = Path()
+    final scale = _calculateScale(size);
+
+    // ------------------------------------------------------------
+    // BACKGROUND GRID
+    // ------------------------------------------------------------
+
+    final gridPaint = Paint()
+      ..color = HmiColors.border.withValues(alpha: 0.16)
+      ..strokeWidth = 1;
+
+    const gridStep = 50.0;
+
+    for (double gx = 0; gx <= bedWidth; gx += gridStep) {
+      final a = _project(
+        gx,
+        0,
+        0,
+        size,
+        scale,
+      );
+
+      final b = _project(
+        gx,
+        bedHeight,
+        0,
+        size,
+        scale,
+      );
+
+      canvas.drawLine(a, b, gridPaint);
+    }
+
+    for (double gy = 0; gy <= bedHeight; gy += gridStep) {
+      final a = _project(
+        0,
+        gy,
+        0,
+        size,
+        scale,
+      );
+
+      final b = _project(
+        bedWidth,
+        gy,
+        0,
+        size,
+        scale,
+      );
+
+      canvas.drawLine(a, b, gridPaint);
+    }
+
+    // ------------------------------------------------------------
+    // RUG / MACHINE BED
+    // ------------------------------------------------------------
+
+    final b0 = _project(
+      0,
+      0,
+      0,
+      size,
+      scale,
+    );
+
+    final b1 = _project(
+      bedWidth,
+      0,
+      0,
+      size,
+      scale,
+    );
+
+    final b2 = _project(
+      bedWidth,
+      bedHeight,
+      0,
+      size,
+      scale,
+    );
+
+    final b3 = _project(
+      0,
+      bedHeight,
+      0,
+      size,
+      scale,
+    );
+
+    final rugPath = Path()
       ..moveTo(b0.dx, b0.dy)
       ..lineTo(b1.dx, b1.dy)
       ..lineTo(b2.dx, b2.dy)
       ..lineTo(b3.dx, b3.dy)
       ..close();
-    canvas.drawPath(bedPath, bed);
-    canvas.drawPath(bedPath, frame);
 
-    // Gantry beam along X at current Y
-    final gL = iso(0, y.clamp(0.0, H), 40, size);
-    final gR = iso(W, y.clamp(0.0, H), 40, size);
-    canvas.drawLine(gL, gR, gold);
+    // Rug surface
+    final rugPaint = Paint()
+      ..color = HmiColors.accent.withValues(alpha: 0.12)
+      ..style = PaintingStyle.fill;
 
-    // Carriage at X,Y
-    final cx = x.clamp(0.0, W);
-    final cy = y.clamp(0.0, H);
-    final top = iso(cx, cy, 55, size);
-    final tipZ = needleDown ? 0.0 : z.clamp(0.0, 25.0);
-    final tip = iso(cx, cy, tipZ, size);
+    canvas.drawPath(rugPath, rugPaint);
 
-    canvas.drawCircle(top, 8, head);
-    canvas.drawLine(top, tip, needle);
-    canvas.drawCircle(tip, 3, Paint()..color = HmiColors.alarm);
+    // Rug border
+    final borderPaint = Paint()
+      ..color = HmiColors.gold.withValues(alpha: 0.75)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
 
-    // Shadow on bed
-    final shadow = iso(cx, cy, 0, size);
+    canvas.drawPath(rugPath, borderPaint);
+
+    // ------------------------------------------------------------
+    // RUG CORNER MARKERS
+    // ------------------------------------------------------------
+
+    final cornerPaint = Paint()
+      ..color = HmiColors.gold
+      ..style = PaintingStyle.fill;
+
+    for (final point in [b0, b1, b2, b3]) {
+      canvas.drawCircle(
+        point,
+        3,
+        cornerPaint,
+      );
+    }
+
+    // ------------------------------------------------------------
+    // GANTRY
+    // ------------------------------------------------------------
+
+    final currentY = y.clamp(
+      0.0,
+      bedHeight,
+    );
+
+    final gantryLeft = _project(
+      0,
+      currentY,
+      40,
+      size,
+      scale,
+    );
+
+    final gantryRight = _project(
+      bedWidth,
+      currentY,
+      40,
+      size,
+      scale,
+    );
+
+    final gantryPaint = Paint()
+      ..color = HmiColors.gold
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(
+      gantryLeft,
+      gantryRight,
+      gantryPaint,
+    );
+
+    // ------------------------------------------------------------
+    // CARRIAGE
+    // ------------------------------------------------------------
+
+    final currentX = x.clamp(
+      0.0,
+      bedWidth,
+    );
+
+    final carriage = _project(
+      currentX,
+      currentY,
+      55,
+      size,
+      scale,
+    );
+
+    final carriagePaint = Paint()
+      ..color = HmiColors.sand
+      ..style = PaintingStyle.fill;
+
     canvas.drawCircle(
-        shadow, 6, Paint()..color = Colors.black.withValues(alpha: 0.25));
+      carriage,
+      8,
+      carriagePaint,
+    );
+
+    // ------------------------------------------------------------
+    // NEEDLE
+    // ------------------------------------------------------------
+
+    final needleZ = needleDown
+        ? 0.0
+        : z.clamp(0.0, 25.0);
+
+    final needleTip = _project(
+      currentX,
+      currentY,
+      needleZ,
+      size,
+      scale,
+    );
+
+    final needlePaint = Paint()
+      ..color = needleDown
+          ? HmiColors.alarm
+          : HmiColors.dro
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+
+    canvas.drawLine(
+      carriage,
+      needleTip,
+      needlePaint,
+    );
+
+    canvas.drawCircle(
+      needleTip,
+      4,
+      Paint()
+        ..color = needleDown
+            ? HmiColors.alarm
+            : HmiColors.dro,
+    );
+
+    // ------------------------------------------------------------
+    // NEEDLE SHADOW
+    // ------------------------------------------------------------
+
+    final shadow = _project(
+      currentX,
+      currentY,
+      0,
+      size,
+      scale,
+    );
+
+    canvas.drawCircle(
+      shadow,
+      7,
+      Paint()
+        ..color = Colors.black.withValues(alpha: 0.28),
+    );
+
+    // ------------------------------------------------------------
+    // CENTER CROSSHAIR
+    // ------------------------------------------------------------
+
+    final center = _project(
+      bedWidth / 2,
+      bedHeight / 2,
+      0,
+      size,
+      scale,
+    );
+
+    final crossPaint = Paint()
+      ..color = HmiColors.textMute.withValues(alpha: 0.35)
+      ..strokeWidth = 1;
+
+    canvas.drawLine(
+      Offset(center.dx - 8, center.dy),
+      Offset(center.dx + 8, center.dy),
+      crossPaint,
+    );
+
+    canvas.drawLine(
+      Offset(center.dx, center.dy - 8),
+      Offset(center.dx, center.dy + 8),
+      crossPaint,
+    );
   }
 
   @override
-  bool shouldRepaint(covariant _Machine3dPainter old) =>
-      old.x != x || old.y != y || old.z != z || old.needleDown != needleDown;
+  bool shouldRepaint(
+    covariant _Machine3dPainter oldDelegate,
+  ) {
+    return oldDelegate.x != x ||
+        oldDelegate.y != y ||
+        oldDelegate.z != z ||
+        oldDelegate.needleDown != needleDown;
+  }
 }
 
 class ErrorsAreaBody extends StatelessWidget {
