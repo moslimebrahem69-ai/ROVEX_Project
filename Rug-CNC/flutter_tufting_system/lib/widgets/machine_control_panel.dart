@@ -5,6 +5,7 @@ import '../l10n/l10n.dart';
 import '../models/machine_status.dart';
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
+import 'hmi_button.dart';
 
 class MachineControlPanel extends StatelessWidget {
   const MachineControlPanel({super.key});
@@ -23,79 +24,275 @@ class MachineControlPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(t.t('machine'),
-                style: const TextStyle(
-                    color: HmiColors.gold,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1)),
-            const SizedBox(height: 10),
-            _btn(t.t('cycle_start'), HmiColors.start, svc.cycleStart),
-            const SizedBox(height: 8),
-            _btn(t.t('feed_hold'), HmiColors.hold, svc.feedHold),
-            const SizedBox(height: 8),
-            _btn(t.t('cycle_stop'), HmiColors.stop, svc.cycleStop),
-            const SizedBox(height: 8),
-            _btn(t.t('reset'), HmiColors.accent, svc.reset),
-            const SizedBox(height: 8),
-            _btn(t.t('estop'), HmiColors.estop, svc.estop, tall: true),
-            const SizedBox(height: 14),
-            _btn(t.t('home'), HmiColors.softkeyActive, svc.home),
-            const SizedBox(height: 8),
-            _btn(
-                s.connected ? t.t('disc') : t.t('connect'),
-                s.connected ? HmiColors.warn : HmiColors.ready,
-                s.connected ? svc.disconnectMachine : svc.connectMachine),
-            const SizedBox(height: 16),
-            if (s.mode == MachineMode.jog) ...[
-              Text(t.t('jog'),
-                  style: const TextStyle(
-                      color: HmiColors.textMute,
+            // ============================================================
+            // MACHINE CONTROL HEADER
+            // ============================================================
+
+            Row(
+              children: [
+                Container(
+                  width: 4,
+                  height: 18,
+                  decoration: BoxDecoration(
+                    color: HmiColors.accent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    t.t('machine'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: HmiColors.gold,
                       fontSize: 11,
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [_jog(svc, 'Y', 1, Icons.keyboard_arrow_up)],
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 12),
+
+            // ============================================================
+            // MAIN MACHINE CONTROLS
+            // ============================================================
+
+            HmiButton(
+              label: t.t('cycle_start'),
+              icon: Icons.play_arrow_rounded,
+              type: HmiButtonType.start,
+              height: 46,
+              fullWidth: true,
+              onPressed: svc.cycleStart,
+            ),
+
+            const SizedBox(height: 8),
+
+            HmiButton(
+              label: t.t('feed_hold'),
+              icon: Icons.pause_rounded,
+              type: HmiButtonType.hold,
+              height: 46,
+              fullWidth: true,
+              onPressed: svc.feedHold,
+            ),
+
+            const SizedBox(height: 8),
+
+            HmiButton(
+              label: t.t('cycle_stop'),
+              icon: Icons.stop_rounded,
+              type: HmiButtonType.stop,
+              height: 46,
+              fullWidth: true,
+              onPressed: svc.cycleStop,
+            ),
+
+            const SizedBox(height: 8),
+
+            HmiButton(
+              label: t.t('reset'),
+              icon: Icons.refresh_rounded,
+              type: HmiButtonType.normal,
+              height: 46,
+              fullWidth: true,
+              onPressed: svc.reset,
+            ),
+
+            const SizedBox(height: 8),
+
+            // ============================================================
+            // EMERGENCY STOP
+            // ============================================================
+
+            HmiButton(
+              label: t.t('estop'),
+              icon: Icons.warning_rounded,
+              type: HmiButtonType.estop,
+              height: 58,
+              fullWidth: true,
+              onPressed: svc.estop,
+            ),
+
+            const SizedBox(height: 14),
+
+            // ============================================================
+            // MACHINE NAVIGATION / CONNECTION
+            // ============================================================
+
+            HmiButton(
+              label: t.t('home'),
+              icon: Icons.home_rounded,
+              type: HmiButtonType.active,
+              height: 46,
+              fullWidth: true,
+              onPressed: svc.home,
+            ),
+
+            const SizedBox(height: 8),
+
+            HmiButton(
+              label: s.connected ? t.t('disc') : t.t('connect'),
+              icon: s.connected
+                  ? Icons.link_off_rounded
+                  : Icons.link_rounded,
+              type: s.connected
+                  ? HmiButtonType.hold
+                  : HmiButtonType.connect,
+              height: 46,
+              fullWidth: true,
+              onPressed: s.connected
+                  ? svc.disconnectMachine
+                  : svc.connectMachine,
+            ),
+
+            const SizedBox(height: 16),
+
+            // ============================================================
+            // JOG CONTROLS
+            // ============================================================
+
+            if (s.mode == MachineMode.jog) ...[
+              _sectionHeader(
+                title: t.t('jog'),
+                icon: Icons.open_with_rounded,
               ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _jog(svc, 'X', -1, Icons.keyboard_arrow_left),
-                  const SizedBox(width: 8),
-                  _jog(svc, 'X', 1, Icons.keyboard_arrow_right),
-                ],
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [_jog(svc, 'Y', -1, Icons.keyboard_arrow_down)],
-              ),
+
               const SizedBox(height: 10),
-              Text(t.t('needle_axis'),
-                  style: const TextStyle(
-                      color: HmiColors.gold, fontSize: 10)),
+
+              // ----------------------------------------------------------
+              // Y+
+              // ----------------------------------------------------------
+
+              _jogButton(
+                svc,
+                axis: 'Y',
+                dir: 1,
+                icon: Icons.keyboard_arrow_up_rounded,
+              ),
+
               const SizedBox(height: 6),
+
+              // ----------------------------------------------------------
+              // X- / CENTER / X+
+              // ----------------------------------------------------------
+
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  _zBtn(svc, 1, 'Z+'),
+                  _jogButton(
+                    svc,
+                    axis: 'X',
+                    dir: -1,
+                    icon: Icons.keyboard_arrow_left_rounded,
+                  ),
                   const SizedBox(width: 8),
-                  _zBtn(svc, -1, 'Z−'),
+                  _jogCenter(),
+                  const SizedBox(width: 8),
+                  _jogButton(
+                    svc,
+                    axis: 'X',
+                    dir: 1,
+                    icon: Icons.keyboard_arrow_right_rounded,
+                  ),
                 ],
               ),
-              const SizedBox(height: 10),
-              Wrap(
-                spacing: 6,
-                children: [0.1, 1.0, 10.0]
-                    .map((v) => ActionChip(
-                          label: Text('${v}mm',
-                              style: const TextStyle(fontSize: 11)),
-                          onPressed: () => svc.setJogStep(v),
-                          backgroundColor: s.jogStep == v
-                              ? HmiColors.modeActive
-                              : HmiColors.softkey,
-                        ))
-                    .toList(),
+
+              const SizedBox(height: 6),
+
+              // ----------------------------------------------------------
+              // Y-
+              // ----------------------------------------------------------
+
+              _jogButton(
+                svc,
+                axis: 'Y',
+                dir: -1,
+                icon: Icons.keyboard_arrow_down_rounded,
+              ),
+
+              const SizedBox(height: 12),
+
+              // ----------------------------------------------------------
+              // NEEDLE Z AXIS
+              // ----------------------------------------------------------
+
+              _sectionHeader(
+                title: t.t('needle_axis'),
+                icon: Icons.height_rounded,
+                compact: true,
+              ),
+
+              const SizedBox(height: 8),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: _zButton(
+                      svc,
+                      dir: 1,
+                      label: 'Z+',
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _zButton(
+                      svc,
+                      dir: -1,
+                      label: 'Z−',
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 12),
+
+              // ----------------------------------------------------------
+              // JOG STEP
+              // ----------------------------------------------------------
+
+              Text(
+                'JOG STEP',
+                style: const TextStyle(
+                  color: HmiColors.textMute,
+                  fontSize: 9,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                ),
+              ),
+
+              const SizedBox(height: 7),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: _stepButton(
+                      svc,
+                      s.jogStep,
+                      0.1,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: _stepButton(
+                      svc,
+                      s.jogStep,
+                      1.0,
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: _stepButton(
+                      svc,
+                      s.jogStep,
+                      10.0,
+                    ),
+                  ),
+                ],
               ),
             ],
           ],
@@ -104,58 +301,185 @@ class MachineControlPanel extends StatelessWidget {
     );
   }
 
-  Widget _zBtn(MachineService svc, int dir, String label) {
+  // ============================================================
+  // SECTION HEADER
+  // ============================================================
+
+  Widget _sectionHeader({
+    required String title,
+    required IconData icon,
+    bool compact = false,
+  }) {
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: compact ? 14 : 16,
+          color: HmiColors.accent,
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: compact
+                  ? HmiColors.gold
+                  : HmiColors.textDim,
+              fontSize: compact ? 10 : 11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ============================================================
+  // JOG BUTTON
+  // ============================================================
+
+  Widget _jogButton(
+    MachineService svc, {
+    required String axis,
+    required int dir,
+    required IconData icon,
+  }) {
     return Material(
-      color: HmiColors.softkeyActive,
-      borderRadius: BorderRadius.circular(6),
+      color: HmiColors.softkey,
+      borderRadius: BorderRadius.circular(9),
       child: InkWell(
-        onTap: () => svc.jogZ(dir),
-        child: SizedBox(
-          width: 56,
-          height: 36,
-          child: Center(
-            child: Text(label,
-                style: const TextStyle(
-                    color: HmiColors.sand, fontWeight: FontWeight.w800)),
+        onTap: () => svc.jog(axis, dir),
+        borderRadius: BorderRadius.circular(9),
+        splashColor: HmiColors.accent.withValues(alpha: 0.12),
+        highlightColor: HmiColors.accent.withValues(alpha: 0.06),
+        child: Container(
+          width: 48,
+          height: 42,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: HmiColors.border,
+              width: 1,
+            ),
+          ),
+          child: Icon(
+            icon,
+            size: 24,
+            color: HmiColors.text,
           ),
         ),
       ),
     );
   }
 
-  Widget _jog(MachineService svc, String axis, int dir, IconData icon) {
-    return Material(
-      color: HmiColors.softkey,
-      borderRadius: BorderRadius.circular(6),
-      child: InkWell(
-        onTap: () => svc.jog(axis, dir),
-        child: SizedBox(
-          width: 48,
-          height: 40,
-          child: Icon(icon, color: HmiColors.text),
+  // ============================================================
+  // JOG CENTER INDICATOR
+  // ============================================================
+
+  Widget _jogCenter() {
+    return Container(
+      width: 48,
+      height: 42,
+      decoration: BoxDecoration(
+        color: HmiColors.panelAlt,
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: HmiColors.border,
+        ),
+      ),
+      child: const Center(
+        child: Icon(
+          Icons.add_rounded,
+          size: 18,
+          color: HmiColors.textMute,
         ),
       ),
     );
   }
 
-  Widget _btn(String label, Color color, VoidCallback onTap,
-      {bool tall = false}) {
+  // ============================================================
+  // Z AXIS BUTTON
+  // ============================================================
+
+  Widget _zButton(
+    MachineService svc, {
+    required int dir,
+    required String label,
+  }) {
     return Material(
-      color: color,
-      borderRadius: BorderRadius.circular(6),
+      color: HmiColors.softkeyActive,
+      borderRadius: BorderRadius.circular(9),
       child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          height: tall ? 56 : 40,
+        onTap: () => svc.jogZ(dir),
+        borderRadius: BorderRadius.circular(9),
+        splashColor: HmiColors.accent.withValues(alpha: 0.14),
+        highlightColor: HmiColors.accent.withValues(alpha: 0.07),
+        child: Container(
+          height: 40,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(
+              color: HmiColors.border,
+            ),
+          ),
           child: Center(
             child: Text(
               label,
-              textAlign: TextAlign.center,
               style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w800,
+                color: HmiColors.text,
                 fontSize: 12,
-                letterSpacing: 0.3,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0.4,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // JOG STEP BUTTON
+  // ============================================================
+
+  Widget _stepButton(
+    MachineService svc,
+    double currentStep,
+    double value,
+  ) {
+    final selected = currentStep == value;
+
+    return Material(
+      color: selected
+          ? HmiColors.modeActive
+          : HmiColors.softkey,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () => svc.setJogStep(value),
+        borderRadius: BorderRadius.circular(8),
+        splashColor: HmiColors.accent.withValues(alpha: 0.12),
+        child: Container(
+          height: 34,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? HmiColors.modeActive
+                  : HmiColors.border,
+            ),
+          ),
+          child: Center(
+            child: Text(
+              '${value}mm',
+              style: TextStyle(
+                color: selected
+                    ? HmiColors.text
+                    : HmiColors.textDim,
+                fontSize: 10,
+                fontWeight: FontWeight.w800,
               ),
             ),
           ),
