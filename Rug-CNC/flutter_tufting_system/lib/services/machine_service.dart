@@ -757,24 +757,64 @@ class MachineService extends ChangeNotifier {
     _haveSeg = true;
   }
 
-  void _localTickOnce(double dt) {
-    if (_status.state != MachineState.running || !_haveSeg) return;
-    _segT += dt;
-    var u = _segT / _segDur;
-    if (u > 1) u = 1;
-    final x = _fromX + (_toX - _fromX) * u;
-    final y = _fromY + (_toY - _fromY) * u;
-    final pct = _localPath.length > 1
-        ? 100.0 * (_localIndex + u) / (_localPath.length - 1)
-        : 0.0;
-    _status = _copy(_status,
-        x: x, y: y, progPct: pct.clamp(0, 100), pathIndex: _localIndex);
-    _notify();
-    if (u >= 1) {
-      _localIndex++;
-      _beginLocalSeg();
+void _localTickOnce(double dt) {
+  if (_status.state != MachineState.running || !_haveSeg) return;
+
+  _segT += dt;
+
+  var u = _segDur <= 0 ? 1.0 : _segT / _segDur;
+  if (u > 1) u = 1;
+
+  final x = _fromX + (_toX - _fromX) * u;
+  final y = _fromY + (_toY - _fromY) * u;
+
+  final pct = _localPath.length > 1
+      ? 100.0 * (_localIndex + u) / (_localPath.length - 1)
+      : 0.0;
+
+  /*
+   * Needle follows the machine while AUTO is running.
+   *
+   * We keep the needle down during the actual embroidery move.
+   * At the end of the complete path it is raised automatically.
+   */
+  final isLastSegment =
+      _localIndex >= _localPath.length - 2 && u >= 0.999;
+
+  _status = _copy(
+    _status,
+    x: x,
+    y: y,
+    progPct: pct.clamp(0, 100),
+    pathIndex: _localIndex,
+    needle: !isLastSegment,
+  );
+
+  _notify();
+
+  if (u >= 1) {
+    _localIndex++;
+
+    if (_localIndex >= _localPath.length - 1) {
+      _haveSeg = false;
+
+      _status = _copy(
+        _status,
+        x: _localPath.last.x,
+        y: _localPath.last.y,
+        progPct: 100,
+        pathIndex: _localPath.length - 1,
+        state: MachineState.idle,
+        needle: false,
+      );
+
+      _notify();
+      return;
     }
+
+    _beginLocalSeg();
   }
+}
 
   MachineStatus _copy(
     MachineStatus s, {

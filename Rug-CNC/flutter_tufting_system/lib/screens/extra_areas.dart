@@ -7,6 +7,7 @@ import '../theme/hmi_colors.dart';
 import 'machines_screen.dart';
 
 /// Isometric 3D-ish view of gantry + embroidery needle.
+
 class Needle3dAreaBody extends StatelessWidget {
   const Needle3dAreaBody({super.key});
 
@@ -183,13 +184,19 @@ class _Machine3dPainter extends CustomPainter {
   final double y;
   final double z;
   final bool needleDown;
+  final List<TuftPoint> programPoints;
+  final int pathIndex;
+  final bool running;
 
   _Machine3dPainter({
-    required this.x,
-    required this.y,
-    required this.z,
-    required this.needleDown,
-  });
+  required this.x,
+  required this.y,
+  required this.z,
+  required this.needleDown,
+  required this.programPoints,
+  required this.pathIndex,
+  required this.running,
+});
 
   // ============================================================
   // MACHINE BED
@@ -222,46 +229,45 @@ class _Machine3dPainter extends CustomPainter {
   // CALCULATE SCALE TO FIT THE COMPLETE BED
   // ============================================================
 
-  double _calculateScale(Size size) {
-    final points = [
-      Offset(0, 0),
-      Offset(bedWidth, 0),
-      Offset(bedWidth, bedHeight),
-      Offset(0, bedHeight),
-    ];
+double _calculateScale(Size size) {
+  final points = [
+    const Offset(0, 0),
+    const Offset(bedWidth, 0),
+    const Offset(bedWidth, bedHeight),
+    const Offset(0, bedHeight),
+  ];
 
-    double minX = double.infinity;
-    double maxX = double.negativeInfinity;
-    double minY = double.infinity;
-    double maxY = double.negativeInfinity;
+  double minX = double.infinity;
+  double maxX = double.negativeInfinity;
+  double minY = double.infinity;
+  double maxY = double.negativeInfinity;
 
-    for (final point in points) {
-      final px = (point.dx - point.dy) * 0.52;
-      final py = (point.dx + point.dy) * 0.25;
+  for (final point in points) {
+    final px = (point.dx - point.dy) * 0.52;
+    final py = (point.dx + point.dy) * 0.25;
 
-      minX = px < minX ? px : minX;
-      maxX = px > maxX ? px : maxX;
-      minY = py < minY ? py : minY;
-      maxY = py > maxY ? py : maxY;
-    }
+       minX = math.min(minX, px);
+        maxX = math.max(maxX, px);
+        minY = math.min(minY, py);
+     maxY = math.max(maxY, py);
+   }
 
-    final projectedWidth = maxX - minX;
-    final projectedHeight = maxY - minY;
+  final projectedWidth = maxX - minX;
+  final projectedHeight = maxY - minY;
 
-    const horizontalPadding = 50.0;
-    const verticalPadding = 55.0;
+  const padding = 32.0;
 
-    final availableWidth =
-        (size.width - horizontalPadding).clamp(1.0, double.infinity);
+  final availableWidth =
+      math.max(1.0, size.width - padding * 2);
 
-    final availableHeight =
-        (size.height - verticalPadding).clamp(1.0, double.infinity);
+  final availableHeight =
+      math.max(1.0, size.height - padding * 2);
 
-    final scaleX = availableWidth / projectedWidth;
-    final scaleY = availableHeight / projectedHeight;
+  final scaleX = availableWidth / projectedWidth;
+  final scaleY = availableHeight / projectedHeight;
 
-    return scaleX < scaleY ? scaleX : scaleY;
-  }
+  return math.min(scaleX, scaleY);
+}
 
   // ============================================================
   // PAINT
