@@ -650,4 +650,10 @@ class _Region {
   });
 }
 
-
+/// Global top-level function called by [MachineService] isolates.
+ExtractResult extractPathFromImageBytes(Uint8List bytes, {double pitch = 10.0}) {
+  return PathExtractor.extractMultiColor(
+    bytes,
+    pitchMm: pitch,
+  );
+}

@@ -952,30 +952,28 @@ class MachineService extends ChangeNotifier {
       }
 
       // Arc Fitting Check (G2 / G3 optimization across 3 points)
-      // Arc Fitting Check (G2 / G3 optimization across 3 points)
       if (i + 2 < points.length) {
         final p1 = pt;
         final p2 = points[i + 1];
         final p3 = points[i + 2];
 
-        // التأكد من أن الألوان متطابقة لمنع القفز بين مجموعات الألوان
         if (p2.colorOrder == currentColorOrder && p3.colorOrder == currentColorOrder) {
           final arcData = _fitArc(p1, p2, p3);
-          
+
           if (arcData != null && arcData.radius > 1.0 && arcData.radius < 500.0) {
             final String gCmd = arcData.isClockwise ? 'G2' : 'G3';
-            
+
             if (activeMotionMode != gCmd) {
               sb.write(gCmd);
               updateMotionMode(gCmd);
             }
-            
+
             sb.write(' X${p3.x.toStringAsFixed(2)} Y${p3.y.toStringAsFixed(2)} I${arcData.i.toStringAsFixed(2)} J${arcData.j.toStringAsFixed(2)}');
             applyFeed(cutFeed);
             sb.writeln();
 
             currentPt = p3;
-            i += 3; // تخطي الـ 3 نقاط التي تم دمجها في القوس
+            i += 3;
             continue;
           }
         }
@@ -1000,7 +998,7 @@ class MachineService extends ChangeNotifier {
   /// Calculates arc parameters (I, J offsets and direction) for 3 collinear or circular points.
   static ArcFittingResult? _fitArc(TuftPoint p1, TuftPoint p2, TuftPoint p3) {
     final d = 2 * (p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y));
-    if (d.abs() < 1e-4) return null; // Points are linear, skip arc fitting
+    if (d.abs() < 1e-4) return null;
 
     final ux = ((p1.x * p1.x + p1.y * p1.y) * (p2.y - p3.y) +
             (p2.x * p2.x + p2.y * p2.y) * (p3.y - p1.y) +
@@ -1016,7 +1014,6 @@ class MachineService extends ChangeNotifier {
     final i = ux - p1.x;
     final j = uy - p1.y;
 
-    // Cross product to determine arc direction (Clockwise vs Counter-Clockwise)
     final crossProduct = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
     final isClockwise = crossProduct < 0;
 
@@ -1073,13 +1070,21 @@ class PlcMacro {
   ];
 }
 
-ExtractResult _extractIsolate(Map<String, dynamic> args) {
-  return PathExtractor.extractMultiColor(
-    args['bytes'] as Uint8List,
-    pitchMm: (args['pitch'] as num).toDouble(),
-  );
-}
+// ---------------------------------------------------------------------
+// Top-Level Isolate Functions
+// ---------------------------------------------------------------------
 
 ExtractResult _dxfExtractIsolate(Map<String, dynamic> args) {
-  return DxfExtractor.extractFromBytes(args['bytes'] as Uint8List);
+  final Uint8List bytes = args['bytes'] as Uint8List;
+  return parseDxfEntities(bytes);
+}
+
+ExtractResult _extractIsolate(Map<String, dynamic> args) {
+  try {
+    final Uint8List bytes = args['bytes'] as Uint8List;
+    final double pitch = (args['pitch'] as num?)?.toDouble() ?? 10.0;
+    return extractPathFromImageBytes(bytes, pitch: pitch);
+  } catch (_) {
+    return const ExtractResult(points: [], colors: []);
+  }
 }

@@ -464,3 +464,29 @@ class _DxfEntity {
   final List<List<double>> points;
   _DxfEntity({required this.layer, required this.colorIndex, required this.points});
 }
+
+/// Global top-level function called by [MachineService] isolates.
+ExtractResult extractPathFromDxfBytes(
+  Uint8List bytes, {
+  double workWidthMm = 600,
+  double workHeightMm = 400,
+}) {
+  return DxfExtractor.extractFromBytes(
+    bytes,
+    workWidthMm: workWidthMm,
+    workHeightMm: workHeightMm,
+  );
+}
+
+/// Alias top-level function expected by [MachineService] isolates.
+ExtractResult parseDxfEntities(
+  Uint8List bytes, {
+  double workWidthMm = 600,
+  double workHeightMm = 400,
+}) {
+  return extractPathFromDxfBytes(
+    bytes,
+    workWidthMm: workWidthMm,
+    workHeightMm: workHeightMm,
+  );
+}

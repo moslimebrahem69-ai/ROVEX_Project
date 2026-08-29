@@ -3,13 +3,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../l10n/l10n.dart';
 import '../models/design.dart';
 import '../models/machine_status.dart';
-import '../l10n/l10n.dart';
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
 import 'machines_screen.dart';
-
 
 /// Isometric 3D-ish view of gantry + embroidery needle.
 
@@ -112,9 +111,7 @@ class Needle3dAreaBody extends StatelessWidget {
                   child: Text(
                     s.needle ? 'NEEDLE DOWN' : 'NEEDLE UP',
                     style: TextStyle(
-                      color: s.needle
-                          ? HmiColors.alarm
-                          : HmiColors.ready,
+                      color: s.needle ? HmiColors.alarm : HmiColors.ready,
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,
@@ -128,7 +125,7 @@ class Needle3dAreaBody extends StatelessWidget {
           const SizedBox(height: 10),
 
           // ============================================================
-          // 3D WORKSPACE
+          // 3D WORKSPACE (PURE G-CODE & RASTER PREVIEW ONLY)
           // ============================================================
 
           Expanded(
@@ -224,7 +221,6 @@ class _Machine3dPainter extends CustomPainter {
     Size size,
     double scale,
   ) {
-    // Center relative to machine bed center
     final cx = x - (bedWidth / 2);
     final cy = y - (bedHeight / 2);
 
@@ -233,13 +229,9 @@ class _Machine3dPainter extends CustomPainter {
 
     return Offset(
       size.width * 0.5 + isoX,
-      size.height * 0.5 + isoY, // Centered vertically and horizontally
+      size.height * 0.5 + isoY,
     );
   }
-
-  // ============================================================
-  // CALCULATE SCALE TO FIT THE COMPLETE BED
-  // ============================================================
 
   double _calculateScale(Size size) {
     final points = [
@@ -270,7 +262,7 @@ class _Machine3dPainter extends CustomPainter {
     final projectedWidth = maxX - minX;
     final projectedHeight = maxY - minY;
 
-    const padding = 40.0; // Safety margin around the machine bed
+    const padding = 40.0;
 
     final availableWidth = math.max(1.0, size.width - padding * 2);
     final availableHeight = math.max(1.0, size.height - padding * 2);
@@ -287,9 +279,7 @@ class _Machine3dPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0) {
-      return;
-    }
+    if (size.width <= 0 || size.height <= 0) return;
 
     final scale = _calculateScale(size);
 
@@ -304,80 +294,25 @@ class _Machine3dPainter extends CustomPainter {
     const gridStep = 50.0;
 
     for (double gx = 0; gx <= bedWidth; gx += gridStep) {
-      final a = _project(
-        gx,
-        0,
-        0,
-        size,
-        scale,
-      );
-
-      final b = _project(
-        gx,
-        bedHeight,
-        0,
-        size,
-        scale,
-      );
-
+      final a = _project(gx, 0, 0, size, scale);
+      final b = _project(gx, bedHeight, 0, size, scale);
       canvas.drawLine(a, b, gridPaint);
     }
 
     for (double gy = 0; gy <= bedHeight; gy += gridStep) {
-      final a = _project(
-        0,
-        gy,
-        0,
-        size,
-        scale,
-      );
-
-      final b = _project(
-        bedWidth,
-        gy,
-        0,
-        size,
-        scale,
-      );
-
+      final a = _project(0, gy, 0, size, scale);
+      final b = _project(bedWidth, gy, 0, size, scale);
       canvas.drawLine(a, b, gridPaint);
     }
 
     // ------------------------------------------------------------
-    // RUG / MACHINE BED
+    // MACHINE BED / WORK AREA
     // ------------------------------------------------------------
 
-    final b0 = _project(
-      0,
-      0,
-      0,
-      size,
-      scale,
-    );
-
-    final b1 = _project(
-      bedWidth,
-      0,
-      0,
-      size,
-      scale,
-    );
-
-    final b2 = _project(
-      bedWidth,
-      bedHeight,
-      0,
-      size,
-      scale,
-    );
-
-    final b3 = _project(
-      0,
-      bedHeight,
-      0,
-      size,
-      scale,
-    );
+    final b0 = _project(0, 0, 0, size, scale);
+    final b1 = _project(bedWidth, 0, 0, size, scale);
+    final b2 = _project(bedWidth, bedHeight, 0, size, scale);
+    final b3 = _project(0, bedHeight, 0, size, scale);
 
     final rugPath = Path()
       ..moveTo(b0.dx, b0.dy)
@@ -386,14 +321,12 @@ class _Machine3dPainter extends CustomPainter {
       ..lineTo(b3.dx, b3.dy)
       ..close();
 
-    // Rug surface
     final rugPaint = Paint()
-      ..color = HmiColors.accent.withValues(alpha: 0.12)
+      ..color = HmiColors.accent.withValues(alpha: 0.08)
       ..style = PaintingStyle.fill;
 
     canvas.drawPath(rugPath, rugPaint);
 
-    // Rug border
     final borderPaint = Paint()
       ..color = HmiColors.gold.withValues(alpha: 0.75)
       ..style = PaintingStyle.stroke
@@ -401,31 +334,23 @@ class _Machine3dPainter extends CustomPainter {
 
     canvas.drawPath(rugPath, borderPaint);
 
-    // ------------------------------------------------------------
-    // RUG CORNER MARKERS
-    // ------------------------------------------------------------
-
     final cornerPaint = Paint()
       ..color = HmiColors.gold
       ..style = PaintingStyle.fill;
 
     for (final point in [b0, b1, b2, b3]) {
-      canvas.drawCircle(
-        point,
-        3,
-        cornerPaint,
-      );
+      canvas.drawCircle(point, 3, cornerPaint);
     }
 
     // ------------------------------------------------------------
-    // PROGRAM DRAWING PATH
+    // MULTI-COLOR RASTER & PROGRAM DRAWING PATH
     // ------------------------------------------------------------
 
     if (programPoints.isNotEmpty) {
-      // 1. Draw complete design path preview
+      // 1. رسم مسار التنفيذ بالكامل
       final pathPaint = Paint()
-        ..color = HmiColors.gold.withValues(alpha: 0.35)
-        ..strokeWidth = 1.5
+        ..color = HmiColors.gold.withValues(alpha: 0.25)
+        ..strokeWidth = 1.0
         ..style = PaintingStyle.stroke;
 
       final path = Path();
@@ -440,11 +365,11 @@ class _Machine3dPainter extends CustomPainter {
       }
       canvas.drawPath(path, pathPaint);
 
-      // 2. Draw executed path during execution
+      // 2. رسم المسار الذي تم تنفيذه بالفعل حتى الآن
       if (pathIndex > 0) {
         final executedPaint = Paint()
           ..color = HmiColors.ready
-          ..strokeWidth = 2.0
+          ..strokeWidth = 1.8
           ..style = PaintingStyle.stroke;
 
         final executedPath = Path();
@@ -461,20 +386,33 @@ class _Machine3dPainter extends CustomPainter {
         canvas.drawPath(executedPath, executedPaint);
       }
 
-      // 3. Draw individual tuft points
-      final pointPaint = Paint()
-        ..color = HmiColors.accent
-        ..style = PaintingStyle.fill;
-
+      // 3. رسم النقاط بدعم تمايز الألوان (Multi-color Point Rendering)
       for (int i = 0; i < programPoints.length; i++) {
         final pt = programPoints[i];
         final projected = _project(pt.x, pt.y, 0, size, scale);
         final isCurrent = i == pathIndex;
 
+        // فحص لون النقطة من كائن TuftPoint (اللون الأساسي أو لون الخلفية/اللون الثاني)
+        final dynamic dynamicPoint = pt;
+        final int colorIndex = (dynamicPoint.colorIndex is int) ? dynamicPoint.colorIndex : 0;
+
+        Color pointColor;
+        if (colorIndex == 1) {
+          // اللون الثاني (تظليل الخلفية) - يعرض باللون الرملي/الأبيض المائل
+          pointColor = HmiColors.sand.withValues(alpha: 0.85);
+        } else {
+          // اللون الأول (الشعار / العنصر الرئيسي) - يعرض باللون الذهبي/الأزرق
+          pointColor = HmiColors.accent;
+        }
+
+        final pPaint = Paint()
+          ..color = isCurrent ? HmiColors.alarm : pointColor
+          ..style = PaintingStyle.fill;
+
         canvas.drawCircle(
           projected,
-          isCurrent ? 4.0 : 1.5,
-          isCurrent ? (Paint()..color = HmiColors.alarm) : pointPaint,
+          isCurrent ? 4.5 : (colorIndex == 1 ? 1.2 : 1.8),
+          pPaint,
         );
       }
     }
@@ -483,26 +421,10 @@ class _Machine3dPainter extends CustomPainter {
     // GANTRY
     // ------------------------------------------------------------
 
-    final currentY = y.clamp(
-      0.0,
-      bedHeight,
-    );
+    final currentY = y.clamp(0.0, bedHeight);
 
-    final gantryLeft = _project(
-      0,
-      currentY,
-      40,
-      size,
-      scale,
-    );
-
-    final gantryRight = _project(
-      bedWidth,
-      currentY,
-      40,
-      size,
-      scale,
-    );
+    final gantryLeft = _project(0, currentY, 40, size, scale);
+    final gantryRight = _project(bedWidth, currentY, 40, size, scale);
 
     final gantryPaint = Paint()
       ..color = HmiColors.gold
@@ -510,107 +432,62 @@ class _Machine3dPainter extends CustomPainter {
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
-    canvas.drawLine(
-      gantryLeft,
-      gantryRight,
-      gantryPaint,
-    );
+    canvas.drawLine(gantryLeft, gantryRight, gantryPaint);
 
     // ------------------------------------------------------------
     // CARRIAGE
     // ------------------------------------------------------------
 
-    final currentX = x.clamp(
-      0.0,
-      bedWidth,
-    );
+    final currentX = x.clamp(0.0, bedWidth);
 
-    final carriage = _project(
-      currentX,
-      currentY,
-      55,
-      size,
-      scale,
-    );
-
-    final carriagePaint = Paint()
-      ..color = HmiColors.sand
-      ..style = PaintingStyle.fill;
+    final carriage = _project(currentX, currentY, 55, size, scale);
 
     canvas.drawCircle(
       carriage,
       8,
-      carriagePaint,
+      Paint()
+        ..color = HmiColors.sand
+        ..style = PaintingStyle.fill,
     );
 
     // ------------------------------------------------------------
     // NEEDLE
     // ------------------------------------------------------------
 
-    final needleZ = needleDown
-        ? 0.0
-        : z.clamp(0.0, 25.0);
+    final needleZ = needleDown ? 0.0 : z.clamp(0.0, 25.0);
 
-    final needleTip = _project(
-      currentX,
-      currentY,
-      needleZ,
-      size,
-      scale,
-    );
+    final needleTip = _project(currentX, currentY, needleZ, size, scale);
 
     final needlePaint = Paint()
-      ..color = needleDown
-          ? HmiColors.alarm
-          : HmiColors.dro
+      ..color = needleDown ? HmiColors.alarm : HmiColors.dro
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
-    canvas.drawLine(
-      carriage,
-      needleTip,
-      needlePaint,
-    );
+    canvas.drawLine(carriage, needleTip, needlePaint);
 
     canvas.drawCircle(
       needleTip,
       4,
-      Paint()
-        ..color = needleDown
-            ? HmiColors.alarm
-            : HmiColors.dro,
+      Paint()..color = needleDown ? HmiColors.alarm : HmiColors.dro,
     );
 
     // ------------------------------------------------------------
     // NEEDLE SHADOW
     // ------------------------------------------------------------
 
-    final shadow = _project(
-      currentX,
-      currentY,
-      0,
-      size,
-      scale,
-    );
+    final shadow = _project(currentX, currentY, 0, size, scale);
 
     canvas.drawCircle(
       shadow,
       7,
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.28),
+      Paint()..color = Colors.black.withValues(alpha: 0.28),
     );
 
     // ------------------------------------------------------------
     // CENTER CROSSHAIR
     // ------------------------------------------------------------
 
-    final center = _project(
-      bedWidth / 2,
-      bedHeight / 2,
-      0,
-      size,
-      scale,
-    );
+    final center = _project(bedWidth / 2, bedHeight / 2, 0, size, scale);
 
     final crossPaint = Paint()
       ..color = HmiColors.textMute.withValues(alpha: 0.35)
@@ -792,11 +669,14 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(t.t('plc_title'),
-              style: const TextStyle(
-                  color: HmiColors.gold,
-                  fontSize: 18,
-                  fontWeight: FontWeight.w700)),
+          Text(
+            t.t('plc_title'),
+            style: const TextStyle(
+              color: HmiColors.gold,
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
           const SizedBox(height: 8),
           const Text(
             'M8/M9 = needle engage/retract (embroidery). Add custom M-codes for your PLC map.',
@@ -808,8 +688,6 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
               itemCount: svc.plcMacros.length + 1,
               itemBuilder: (context, i) {
                 if (i == svc.plcMacros.length) {
-                  // Last button on this page: connect to a machine over
-                  // WiFi (one phone/app, several machines to switch between).
                   final active = svc.activeMachine;
                   return Card(
                     color: HmiColors.panel,
@@ -824,18 +702,23 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
                             ? HmiColors.ready
                             : HmiColors.textDim,
                       ),
-                      title: Text(t.t('connect_to_machine'),
-                          style: const TextStyle(
-                              color: HmiColors.text,
-                              fontWeight: FontWeight.w700)),
+                      title: Text(
+                        t.t('connect_to_machine'),
+                        style: const TextStyle(
+                          color: HmiColors.text,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
                       subtitle: Text(
-                          '${active.name} — ${active.host}:${active.port}'
-                          '${svc.runtimeLinked ? '  ·  LINKED' : ''}',
-                          style: const TextStyle(color: HmiColors.textDim)),
+                        '${active.name} — ${active.host}:${active.port}'
+                        '${svc.runtimeLinked ? '  ·  LINKED' : ''}',
+                        style: const TextStyle(color: HmiColors.textDim),
+                      ),
                       trailing: ElevatedButton(
                         onPressed: () => Navigator.of(context).push(
                           MaterialPageRoute(
-                              builder: (_) => const MachinesScreen()),
+                            builder: (_) => const MachinesScreen(),
+                          ),
                         ),
                         child: Text(t.t('machines_title')),
                       ),
@@ -846,12 +729,17 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
                 return Card(
                   color: HmiColors.panelAlt,
                   child: ListTile(
-                    title: Text(m.name,
-                        style: const TextStyle(
-                            color: HmiColors.text,
-                            fontWeight: FontWeight.w700)),
-                    subtitle: Text('${m.code}  —  ${m.note}',
-                        style: const TextStyle(color: HmiColors.textDim)),
+                    title: Text(
+                      m.name,
+                      style: const TextStyle(
+                        color: HmiColors.text,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    subtitle: Text(
+                      '${m.code}  —  ${m.note}',
+                      style: const TextStyle(color: HmiColors.textDim),
+                    ),
                     trailing: ElevatedButton(
                       onPressed: () => svc.runPlcMacro(m),
                       child: const Text('RUN'),
@@ -906,11 +794,13 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
                   if (_name.text.trim().isEmpty || _code.text.trim().isEmpty) {
                     return;
                   }
-                  svc.addPlcMacro(PlcMacro(
-                    name: _name.text.trim(),
-                    code: _code.text.trim().toUpperCase(),
-                    note: _note.text.trim(),
-                  ));
+                  svc.addPlcMacro(
+                    PlcMacro(
+                      name: _name.text.trim(),
+                      code: _code.text.trim().toUpperCase(),
+                      note: _note.text.trim(),
+                    ),
+                  );
                   _name.clear();
                   _note.clear();
                 },
