@@ -1,10 +1,15 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/design.dart';
+import '../models/machine_status.dart';
 import '../l10n/l10n.dart';
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
 import 'machines_screen.dart';
+
 
 /// Isometric 3D-ish view of gantry + embroidery needle.
 
@@ -138,12 +143,15 @@ class Needle3dAreaBody extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: CustomPaint(
-                painter: _Machine3dPainter(
-                  x: s.x,
+               painter: _Machine3dPainter(
+                 x: s.x,
                   y: s.y,
                   z: s.z,
-                  needleDown: s.needle,
-                ),
+                      needleDown: s.needle,
+                     programPoints: svc.programPoints,
+                     pathIndex: s.pathIndex,
+            running: s.state == MachineState.running,
+                    ),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -246,10 +254,10 @@ double _calculateScale(Size size) {
     final px = (point.dx - point.dy) * 0.52;
     final py = (point.dx + point.dy) * 0.25;
 
-       minX = math.min(minX, px);
-        maxX = math.max(maxX, px);
-        minY = math.min(minY, py);
-     maxY = math.max(maxY, py);
+        minX = math.min(minX, px);
+         maxX = math.max(maxX, px);
+         minY = math.min(minY, py);
+      maxY = math.max(maxY, py);
    }
 
   final projectedWidth = maxX - minX;
