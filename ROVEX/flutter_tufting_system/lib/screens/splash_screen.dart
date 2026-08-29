@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../services/ambient_audio.dart';
+
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
 import 'hmi_shell_screen.dart';
@@ -57,11 +57,6 @@ class _SplashScreenState extends State<SplashScreen>
   Future<void> _boot() async {
     final svc = context.read<MachineService>();
     final started = DateTime.now();
-
-    unawaited(
-      AmbientAudio.instance.start(),
-    );
-
     if (!mounted) return;
 
     setState(() {

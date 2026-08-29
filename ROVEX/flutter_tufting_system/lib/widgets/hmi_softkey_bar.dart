@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 
 import '../l10n/l10n.dart';
 import '../models/machine_status.dart';
-import '../services/ambient_audio.dart';
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
 
@@ -44,7 +43,7 @@ class HmiSoftkeyBar extends StatelessWidget {
               ),
             ),
           ),
-          Expanded(
+                    Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -81,12 +80,6 @@ class HmiSoftkeyBar extends StatelessWidget {
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'صوت النظام',
-            onPressed: () => AmbientAudio.instance.toggleMute(),
-            icon: const Icon(Icons.volume_up, size: 18, color: HmiColors.textDim),
-          ),
-          const SizedBox(width: 4),
           _langBtn(loc),
           const SizedBox(width: 6),
           _linkBadge(svc),
