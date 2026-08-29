@@ -26,7 +26,7 @@ import '../models/design.dart';
 class PathExtractor {
   static const int _maxSide = 420;
   static const int _maxColors = 8;
-  static const int _colorMergeDist = 46; // pixels lighter than this = background/canvas
+    static const int _colorMergeDist = 46; // pixels lighter than this = background/canvas
 
   static List<TuftPoint> extractFromBytes(
     Uint8List bytes, {
