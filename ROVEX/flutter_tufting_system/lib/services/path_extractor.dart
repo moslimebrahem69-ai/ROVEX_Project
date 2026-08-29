@@ -72,20 +72,25 @@ class PathExtractor {
     if (w < 2 || h < 2) return const ExtractResult(points: [], colors: []);
 
     // ---- 1. foreground mask (anything that isn't near-white / transparent) ----
-    final fg = Uint8List(w * h);
-    var fgCount = 0;
-    for (var y = 0; y < h; y++) {
-      for (var x = 0; x < w; x++) {
-        final p = src.getPixel(x, y);
-        final a = p.a.toInt();
-        final luma = (0.299 * p.r + 0.587 * p.g + 0.114 * p.b);
-        final isFg = a > 10 && luma < _bgLuma;
-        if (isFg) {
-          fg[y * w + x] = 1;
-          fgCount++;
-        }
-      }
+    // ---- 1. renderable pixel mask ----
+// Keep every non-transparent pixel so the image background can also
+// become a real thread/color group.
+final fg = Uint8List(w * h);
+var fgCount = 0;
+
+for (var y = 0; y < h; y++) {
+  for (var x = 0; x < w; x++) {
+    final p = src.getPixel(x, y);
+    final a = p.a.toInt();
+
+    final isRenderable = a > 10;
+
+    if (isRenderable) {
+      fg[y * w + x] = 1;
+      fgCount++;
     }
+  }
+}
     if (fgCount == 0) return const ExtractResult(points: [], colors: []);
 
     // ---- 2. quantize into a small thread-color palette ----
@@ -182,45 +187,148 @@ class PathExtractor {
   // Palette building
   // ---------------------------------------------------------------------
 
-  static List<int> _buildPalette(
-    img.Image src,
-    Uint8List fg,
-    int w,
-    int h,
-    int maxColors,
-  ) {
-    // Bucket colors on a coarse grid to find dominant shades quickly.
-    const levels = 6;
-    const step = 256 / levels;
-    final hist = <int, int>{};
+ static List<int> _buildPalette(
+  img.Image src,
+  Uint8List fg,
+  int w,
+  int h,
+  int maxColors,
+) {
+  // Build the palette from stable interior pixels first.
+  // Anti-aliased edge pixels are assigned later to the nearest base color.
+  const levels = 6;
+  const step = 256 / levels;
+
+  final hist = <int, int>{};
+  var stableSamples = 0;
+
+  bool isStablePixel(int x, int y) {
+    final center = src.getPixel(x, y);
+    final centerRgb =
+        (center.r.toInt() << 16) |
+        (center.g.toInt() << 8) |
+        center.b.toInt();
+
+    final neighbors = <List<int>>[
+      [x - 1, y],
+      [x + 1, y],
+      [x, y - 1],
+      [x, y + 1],
+    ];
+
+    for (final n in neighbors) {
+      final nx = n[0];
+      final ny = n[1];
+
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) {
+        continue;
+      }
+
+      if (fg[ny * w + nx] == 0) {
+        continue;
+      }
+
+      final neighbor = src.getPixel(nx, ny);
+      final neighborRgb =
+          (neighbor.r.toInt() << 16) |
+          (neighbor.g.toInt() << 8) |
+          neighbor.b.toInt();
+
+      if (_rgbDist(centerRgb, neighborRgb) > 42 * 42) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  for (var y = 0; y < h; y++) {
+    for (var x = 0; x < w; x++) {
+      if (fg[y * w + x] == 0) continue;
+
+      if (!isStablePixel(x, y)) continue;
+
+      final p = src.getPixel(x, y);
+
+      final r =
+          ((p.r.toInt() / step).floor() * step + step / 2)
+              .clamp(0, 255)
+              .toInt();
+
+      final g =
+          ((p.g.toInt() / step).floor() * step + step / 2)
+              .clamp(0, 255)
+              .toInt();
+
+      final b =
+          ((p.b.toInt() / step).floor() * step + step / 2)
+              .clamp(0, 255)
+              .toInt();
+
+      final key = (r << 16) | (g << 8) | b;
+
+      hist[key] = (hist[key] ?? 0) + 1;
+      stableSamples++;
+    }
+  }
+
+  // Very thin drawings may not have enough stable interior pixels.
+  // Fall back to all renderable pixels in that case.
+  if (stableSamples < math.max(32, (w * h * 0.002).round())) {
+    hist.clear();
+
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         if (fg[y * w + x] == 0) continue;
+
         final p = src.getPixel(x, y);
-        final r = ((p.r.toInt() / step).floor() * step + step / 2).clamp(0, 255).toInt();
-        final g = ((p.g.toInt() / step).floor() * step + step / 2).clamp(0, 255).toInt();
-        final b = ((p.b.toInt() / step).floor() * step + step / 2).clamp(0, 255).toInt();
+
+        final r =
+            ((p.r.toInt() / step).floor() * step + step / 2)
+                .clamp(0, 255)
+                .toInt();
+
+        final g =
+            ((p.g.toInt() / step).floor() * step + step / 2)
+                .clamp(0, 255)
+                .toInt();
+
+        final b =
+            ((p.b.toInt() / step).floor() * step + step / 2)
+                .clamp(0, 255)
+                .toInt();
+
         final key = (r << 16) | (g << 8) | b;
+
         hist[key] = (hist[key] ?? 0) + 1;
       }
     }
-    final entries = hist.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    final palette = <int>[];
-    for (final e in entries) {
-      if (palette.length >= maxColors) break;
-      var tooClose = false;
-      for (final p in palette) {
-        if (_rgbDist(e.key, p) < _colorMergeDist * _colorMergeDist) {
-          tooClose = true;
-          break;
-        }
-      }
-      if (!tooClose) palette.add(e.key);
-    }
-    return palette;
   }
+
+  final entries = hist.entries.toList()
+    ..sort((a, b) => b.value.compareTo(a.value));
+
+  final palette = <int>[];
+
+  for (final e in entries) {
+    if (palette.length >= maxColors) break;
+
+    var tooClose = false;
+
+    for (final p in palette) {
+      if (_rgbDist(e.key, p) < _colorMergeDist * _colorMergeDist) {
+        tooClose = true;
+        break;
+      }
+    }
+
+    if (!tooClose) {
+      palette.add(e.key);
+    }
+  }
+
+  return palette;
+}
 
   static int _rgbDist(int a, int b) {
     final ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
@@ -582,49 +690,112 @@ class PathExtractor {
   // G-code emission (pauses for a thread change between color groups)
   // ---------------------------------------------------------------------
 
-  static String toGCode(
-    List<TuftPoint> points, {
-    double feedMmMin = 3000,
-    double safeZ = 5,
-    bool embroidery = true,
-  }) {
-    final b = StringBuffer();
-    b.writeln('; ROVEX path — ${points.length} pts');
-    b.writeln('G21');
-    b.writeln('G90');
-    b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
-    if (points.isEmpty) {
-      b.writeln('M2');
-      return b.toString();
-    }
-    b.writeln(
-        'G0 X${points.first.x.toStringAsFixed(2)} Y${points.first.y.toStringAsFixed(2)}');
-    if (embroidery) b.writeln('M8 ; needle engage');
+ static String toGCode(
+  List<TuftPoint> points, {
+  double feedMmMin = 3000,
+  double safeZ = 5,
+  bool embroidery = true,
+  double travelJumpMm = 14,
+}) {
+  final b = StringBuffer();
 
-    int? lastColorOrder;
-    for (final p in points) {
-      if (p.colorOrder != null && p.colorOrder != lastColorOrder) {
-        if (lastColorOrder != null) {
-          if (embroidery) b.writeln('M9 ; needle up');
-          b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
-          final hex = p.colorValue != null
-              ? '#${(p.colorValue! & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}'
-              : '?';
-          b.writeln('M0 ; THREAD CHANGE -> color ${p.colorOrder} ($hex)');
-          if (embroidery) b.writeln('M8 ; needle engage');
-        }
-        lastColorOrder = p.colorOrder;
-      }
-      b.writeln(
-          'G1 X${p.x.toStringAsFixed(2)} Y${p.y.toStringAsFixed(2)} F${feedMmMin.toStringAsFixed(0)}');
-    }
-    if (embroidery) {
-      b.writeln('M9 ; needle up');
-      b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
-    }
+  b.writeln('; ROVEX path — ${points.length} pts');
+  b.writeln('G21');
+  b.writeln('G90');
+  b.writeln('G17');
+  b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+
+  if (points.isEmpty) {
     b.writeln('M2');
     return b.toString();
   }
+
+  final first = points.first;
+
+  b.writeln(
+    'G0 X${first.x.toStringAsFixed(2)} Y${first.y.toStringAsFixed(2)}',
+  );
+
+  if (embroidery) {
+    b.writeln('M8 ; needle engage');
+  }
+
+  int? lastColorOrder;
+  double? lastX;
+  double? lastY;
+
+  for (final p in points) {
+    final colorChanged =
+        p.colorOrder != null &&
+        p.colorOrder != lastColorOrder &&
+        lastColorOrder != null;
+
+    if (colorChanged) {
+      if (embroidery) {
+        b.writeln('M9 ; needle up');
+      }
+
+      b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+
+      final hex = p.colorValue != null
+          ? '#${(p.colorValue! & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}'
+          : '?';
+
+      b.writeln(
+        'M0 ; THREAD CHANGE -> color ${p.colorOrder} ($hex)',
+      );
+
+      b.writeln(
+        'G0 X${p.x.toStringAsFixed(2)} Y${p.y.toStringAsFixed(2)}',
+      );
+
+      if (embroidery) {
+        b.writeln('M8 ; needle engage');
+      }
+    } else if (lastX != null && lastY != null) {
+      final dx = p.x - lastX;
+      final dy = p.y - lastY;
+      final distance = math.sqrt(dx * dx + dy * dy);
+
+      if (distance > travelJumpMm) {
+        if (embroidery) {
+          b.writeln('M9 ; needle up');
+        }
+
+        b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+        b.writeln(
+          'G0 X${p.x.toStringAsFixed(2)} Y${p.y.toStringAsFixed(2)}',
+        );
+
+        if (embroidery) {
+          b.writeln('M8 ; needle engage');
+        }
+      }
+    }
+
+    if (p.colorOrder != null) {
+      lastColorOrder = p.colorOrder;
+    }
+
+    b.writeln(
+      'G1 X${p.x.toStringAsFixed(2)} '
+      'Y${p.y.toStringAsFixed(2)} '
+      'F${feedMmMin.toStringAsFixed(0)}',
+    );
+
+    lastX = p.x;
+    lastY = p.y;
+  }
+
+  if (embroidery) {
+    b.writeln('M9 ; needle up');
+    b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+  }
+
+  b.writeln('M2');
+
+  return b.toString();
+}
 }
 
 class _Region {
