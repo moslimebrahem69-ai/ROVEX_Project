@@ -1,6 +1,8 @@
+import 'dart:typed_data';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import 'package:provider/provider.dart';
 
 import '../l10n/l10n.dart';
@@ -141,6 +143,35 @@ class DesignAreaBody extends StatefulWidget {
 class _DesignAreaBodyState extends State<DesignAreaBody> {
   bool _dragging = false;
 
+  List<int> _cropToTargetRatio(List<int> bytes) {
+    final original = img.decodeImage(Uint8List.fromList(bytes));
+    if (original == null) return bytes;
+
+    const double targetAspect = 1.5 / 2.0;
+    int cropWidth = original.width;
+    int cropHeight = original.height;
+    int offsetX = 0;
+    int offsetY = 0;
+
+    if (original.width / original.height > targetAspect) {
+      cropWidth = (original.height * targetAspect).round();
+      offsetX = ((original.width - cropWidth) / 2).round();
+    } else {
+      cropHeight = (original.width / targetAspect).round();
+      offsetY = ((original.height - cropHeight) / 2).round();
+    }
+
+    final cropped = img.copyCrop(
+      original,
+      x: offsetX,
+      y: offsetY,
+      width: cropWidth,
+      height: cropHeight,
+    );
+
+    return img.encodePng(cropped);
+  }
+
   Future<void> _pick(MachineService svc) async {
     try {
       final r = await FilePicker.platform.pickFiles(
@@ -159,7 +190,8 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
       if (f.name.toLowerCase().endsWith('.dxf')) {
         await svc.loadDesignFromDxf(f.bytes!, f.name);
       } else {
-        await svc.loadDesignImage(f.bytes!, f.name);
+        final croppedBytes = Uint8List.fromList(_cropToTargetRatio(f.bytes!));
+        await svc.loadDesignImage(croppedBytes, f.name);
       }
     } catch (e) {
       _showError('Upload failed: $e');
@@ -190,7 +222,8 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
         if (f.name.toLowerCase().endsWith('.dxf')) {
           await svc.loadDesignFromDxf(bytes, f.name);
         } else {
-          await svc.loadDesignImage(bytes, f.name);
+          final croppedBytes = Uint8List.fromList(_cropToTargetRatio(bytes));
+          await svc.loadDesignImage(croppedBytes, f.name);
         }
       },
       child: Padding(

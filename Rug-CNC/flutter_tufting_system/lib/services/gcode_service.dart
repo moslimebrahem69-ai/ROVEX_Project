@@ -8,7 +8,7 @@ class GCodeService {
 
     int targetWidth = 1500;
     int targetHeight = 2000;
-    double targetAspect = targetWidth / targetHeight; // 1.5 / 2.0 = 0.75
+    double targetAspect = targetWidth / targetHeight;
 
     int cropWidth = original.width;
     int cropHeight = original.height;
@@ -48,14 +48,18 @@ class GCodeService {
     double scaleX = targetWidthMm / image.width;
     double scaleY = targetHeightMm / image.height;
 
-    Map<int, List<Map<String, double>>> colorGroups = {};
+    gcode.writeln("; FULL CARPET RASTER SCAN 1.5m x 2m");
+    gcode.writeln("G21");
+    gcode.writeln("G90");
+    gcode.writeln("G0 Z5 F500");
 
     int step = 8;
+    Map<int, List<Map<String, double>>> colorGroups = {};
 
     for (int y = 0; y < image.height; y += step) {
       for (int x = 0; x < image.width; x += step) {
         img.Pixel pixel = image.getPixel(x, y);
-        
+
         int r = (pixel.r / 64).round() * 64;
         int g = (pixel.g / 64).round() * 64;
         int b = (pixel.b / 64).round() * 64;
@@ -72,20 +76,16 @@ class GCodeService {
       }
     }
 
-    gcode.writeln("G21");
-    gcode.writeln("G90");
-    gcode.writeln("G0 Z5 F500");
-
     int colorIndex = 1;
     colorGroups.forEach((colorHex, points) {
-      gcode.writeln("(--- COLOR SECTION $colorIndex ---)");
-      gcode.writeln("M0 ; Pause for changing thread/color $colorIndex");
+      gcode.writeln("(--- COLOR $colorIndex START ---)");
+      gcode.writeln("M0 ; Pause for color change $colorIndex");
       gcode.writeln("M3 S1000");
 
       for (var pt in points) {
         gcode.writeln("G0 X${pt['x']!.toStringAsFixed(2)} Y${pt['y']!.toStringAsFixed(2)}");
-        gcode.writeln("G1 Z-2.00 F1200");
-        gcode.writeln("G0 Z5.00 F500");
+        gcode.writeln("G1 Z-2.00 F3000");
+        gcode.writeln("G0 Z5.00 F3000");
       }
 
       colorIndex++;
