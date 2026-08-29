@@ -28,7 +28,6 @@ flutter:
   uses-material-design: true
   assets:
     - assets/brand/dar_icon_log.png
-    - assets/audio/ambient_soft.wav
     - assets/designs/
 
 flutter_launcher_icons:
