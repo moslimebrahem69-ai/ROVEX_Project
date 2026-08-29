@@ -7,7 +7,6 @@ import 'package:provider/provider.dart';
 
 import '../l10n/l10n.dart';
 import '../models/machine_status.dart';
-import '../models/sample_project.dart';
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
 import '../widgets/path_preview.dart';
@@ -345,56 +344,7 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
                                 ],
                               ),
                             ),
-                          const SizedBox(height: 10),
-                          Text(t.t('internal_sample'),
-                              style: const TextStyle(
-                                  color: HmiColors.accent,
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 6),
-                          ...SampleProject.catalog.map((p) {
-                            final title = p.title;
-                            return Material(
-                              color: HmiColors.panel,
-                              borderRadius: BorderRadius.circular(8),
-                              child: InkWell(
-                                onTap: svc.isExtracting
-                                    ? null
-                                    : () => svc.loadSampleProject(
-                                        p.assetPath, title),
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  height: 88,
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: svc.designName == title
-                                          ? HmiColors.accent
-                                          : HmiColors.border,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Image.asset(p.assetPath,
-                                          width: 72, fit: BoxFit.contain),
-                                      const SizedBox(width: 10),
-                                      Expanded(
-                                        child: Text(
-                                          '${p.title}\n${p.blurb}',
-                                          style: const TextStyle(
-                                              color: HmiColors.textDim,
-                                              fontSize: 11,
-                                              height: 1.35),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            );
-                          }),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 16),
                           Text(
                               'Pitch ${svc.extractPitchMm.toStringAsFixed(0)} mm',
                               style: const TextStyle(

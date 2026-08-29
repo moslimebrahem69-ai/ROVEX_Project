@@ -269,41 +269,31 @@ class _PathPainter extends CustomPainter {
     }
 
     // ===============================================================
-    // DRAW TOOLPATH
+    // DRAW CARPET TUFTS (STITCHES) - NO ZIGZAG / NO CONNECTING LINES
     // ===============================================================
 
-    for (int i = 0; i < points.length - 1; i++) {
-      final a = map(
+    final tuftPaint = Paint()..style = PaintingStyle.fill;
+
+    for (int i = 0; i < points.length; i++) {
+      final ptOffset = map(
         points[i].x,
         points[i].y,
       );
 
-      final b = map(
-        points[i + 1].x,
-        points[i + 1].y,
-      );
+      final isDone = i < progressIndex;
 
-      final done = i < progressIndex;
-
-      final threadColor = points[i].colorValue != null
+      final Color tuftColor = points[i].colorValue != null
           ? Color(points[i].colorValue!)
-          : (done
+          : (isDone
               ? HmiColors.modeActive
               : HmiColors.accent);
 
-      final paint = Paint()
-        ..color = threadColor.withValues(
-          alpha: done ? 1.0 : 0.65,
-        )
-        ..strokeWidth = done ? 2.8 : 1.8
-        ..style = PaintingStyle.stroke
-        ..strokeCap = StrokeCap.round;
-
-      canvas.drawLine(
-        a,
-        b,
-        paint,
+      tuftPaint.color = tuftColor.withValues(
+        alpha: isDone ? 1.0 : 0.75,
       );
+
+      // رسم غرزة/عقدة سجاد نقطية مستقلة بدون توصيل خطوط
+      canvas.drawCircle(ptOffset, isDone ? 3.0 : 2.2, tuftPaint);
     }
 
     // ===============================================================

@@ -12,11 +12,9 @@ import 'dxf_parser.dart';
 import 'path_extractor.dart';
 import 'runtime_link.dart';
 
-/// Talks to a machine controller (Arduino/ESP over WiFi, or the C
-/// runtime on desktop) using a shared line-based JSON protocol. Falls
-/// back to an embedded Dart sim if nothing is reachable.
+/// Handles communications with the machine controller (Arduino/ESP via WiFi/LAN,
+/// or C runtime on desktop) using line-based JSON protocol.
 class MachineService extends ChangeNotifier {
-  /// Built-in profile — used until the user adds a real machine.
   static const _localProfile = MachineProfile(
     id: 'local',
     name: 'Local runtime',
@@ -31,7 +29,7 @@ class MachineService extends ChangeNotifier {
 
   MachineStatus _status = const MachineStatus();
   HmiArea _area = HmiArea.machine;
-  String _message = 'Waiting for machine runtime…';
+  String _message = 'Waiting for machine runtime...';
   bool _runtimeLinked = false;
   bool _useLocalSim = true;
 
@@ -66,8 +64,6 @@ class MachineService extends ChangeNotifier {
   List<ColorGroup> get colorGroups => List.unmodifiable(_colorGroups);
   int get colorCount => _colorGroups.length;
 
-  /// 1-based color order currently under the needle, based on machine
-  /// progress along `programPoints`. Null if there's no color info.
   int? get activeColorOrder {
     final idx = _status.pathIndex;
     if (idx < 0 || idx >= _programPoints.length) {
@@ -75,6 +71,7 @@ class MachineService extends ChangeNotifier {
     }
     return _programPoints[idx].colorOrder;
   }
+
   Uint8List? get designImage => _designImage;
   String? get designName => _designName;
   bool get hasDesign => _designImage != null || _isDxf;
@@ -131,11 +128,6 @@ class MachineService extends ChangeNotifier {
     _notify();
   }
 
-  // -------------------------------------------------------------------
-  // Multi-machine WiFi list — one phone/app, several Arduino/ESP-based
-  // machines on the local network, switch with a tap.
-  // -------------------------------------------------------------------
-
   Future<void> _loadMachines() async {
     try {
       final raw = await _link.loadText('machines');
@@ -148,18 +140,14 @@ class MachineService extends ChangeNotifier {
         _machines = loaded;
         _activeMachine = loaded.first;
       }
-    } catch (_) {
-      // Corrupt/missing config — keep the built-in local profile.
-    }
+    } catch (_) {}
   }
 
   Future<void> _saveMachines() async {
     try {
       await _link.saveText(
           'machines', jsonEncode(_machines.map((m) => m.toJson()).toList()));
-    } catch (_) {
-      // Non-fatal — the list just won't survive an app restart.
-    }
+    } catch (_) {}
   }
 
   Future<void> addMachine({
@@ -179,7 +167,7 @@ class MachineService extends ChangeNotifier {
   }
 
   Future<void> removeMachine(String id) async {
-    if (id == _localProfile.id) return; // keep the built-in local profile
+    if (id == _localProfile.id) return;
     _machines = _machines.where((m) => m.id != id).toList();
     if (_machines.isEmpty) _machines = [_localProfile];
     if (_activeMachine.id == id) {
@@ -189,13 +177,12 @@ class MachineService extends ChangeNotifier {
     _notify();
   }
 
-  /// Switches the live link to a different machine on the network.
   Future<void> connectToMachine(MachineProfile m) async {
     _activeMachine = m;
     _connectingMachine = true;
     _runtimeLinked = false;
     _link.close();
-    _message = 'Connecting to ${m.name} (${m.host}:${m.port})…';
+    _message = 'Connecting to ${m.name} (${m.host}:${m.port})...';
     _notify();
     await _tryConnectRuntime();
   }
@@ -281,7 +268,6 @@ class MachineService extends ChangeNotifier {
       sendCmd({'cmd': 'jog', 'axis': axis, 'dir': dir});
 
   Future<void> jogZ(int dir) async {
-    // Local embroidery Z until C runtime exposes Z.
     if (_runtimeLinked) {
       await jog('Z', dir);
       return;
@@ -296,12 +282,15 @@ class MachineService extends ChangeNotifier {
 
   void setExtractPitch(double mm) {
     _extractPitchMm = mm.clamp(2, 20);
-    // Don't re-extract on every slider tick — keeps UI light
     _notify();
   }
 
   void regenerateGCode() {
-    _gCode = PathExtractor.toGCode(_programPoints, embroidery: true);
+    _gCode = generateAdvancedGCode(
+      points: _programPoints,
+      colorGroups: _colorGroups,
+      programName: _designName ?? 'Generated_Path',
+    );
     _notify();
   }
 
@@ -342,7 +331,6 @@ class MachineService extends ChangeNotifier {
   Future<void> loadPathFile(String path) async {
     _loadedProgramName = _link.basename(path);
     await sendCmd({'cmd': 'load_path', 'path': path});
-    // Also hydrate local preview points when possible
     final lines = await _link.readCsvLines(path);
     if (lines != null) {
       _programPoints = [];
@@ -364,12 +352,16 @@ class MachineService extends ChangeNotifier {
     if (points.length < 2) {
       _message = 'Need at least 2 tuft points';
       _notify();
-      throw Exception('empty design');
+      throw Exception('Empty design');
     }
 
     final ordered = _optimizeNearest(points);
     _programPoints = ordered;
-    _gCode = PathExtractor.toGCode(ordered, embroidery: true);
+    _gCode = generateAdvancedGCode(
+      points: ordered,
+      colorGroups: _colorGroups,
+      programName: name,
+    );
 
     final rows = <String>['x_mm,y_mm'];
     for (final p in ordered) {
@@ -391,15 +383,11 @@ class MachineService extends ChangeNotifier {
     _designName = name;
     _programPoints = [];
     _gCode = '';
-    _message = 'Design loaded — extracting path…';
+    _message = 'Design loaded — extracting path...';
     _notify();
     await extractPathFromDesign();
   }
 
-  /// Loads an exact vector path straight from a DXF file — no pixel
-  /// tracing at all, so lines are exactly where the drawing says and
-  /// arcs/circles come out as true curves. Each DXF layer becomes one
-  /// thread-color group, same as the per-color image workflow.
   Future<void> loadDesignFromDxf(Uint8List bytes, String name) async {
     _designImage = null;
     _isDxf = true;
@@ -407,7 +395,7 @@ class MachineService extends ChangeNotifier {
     _programPoints = [];
     _colorGroups = [];
     _gCode = '';
-    _message = 'DXF loaded — building exact path…';
+    _message = 'DXF loaded — building exact path...';
     _notify();
     if (_extracting) return;
     _extracting = true;
@@ -420,7 +408,11 @@ class MachineService extends ChangeNotifier {
       );
       _programPoints = result.points;
       _colorGroups = result.colors;
-      _gCode = PathExtractor.toGCode(result.points, embroidery: true);
+      _gCode = generateAdvancedGCode(
+        points: result.points,
+        colorGroups: result.colors,
+        programName: name,
+      );
       _message = result.points.isEmpty
           ? 'No supported entities found (LINE/ARC/CIRCLE/LWPOLYLINE/POLYLINE)'
           : 'DXF: exact path — ${result.points.length} points across '
@@ -444,21 +436,24 @@ class MachineService extends ChangeNotifier {
   Future<void> extractPathFromDesign() async {
     if (_designImage == null || _extracting) return;
     _extracting = true;
-    _message = 'Extracting path…';
+    _message = 'Extracting path...';
     _notify();
     try {
       final args = <String, dynamic>{
         'bytes': _designImage!,
         'pitch': _extractPitchMm,
       };
-      // Timeout so a bad image never freezes the HMI forever.
       final result = await compute(_extractIsolate, args).timeout(
         const Duration(seconds: 12),
         onTimeout: () => const ExtractResult(points: [], colors: []),
       );
       _programPoints = result.points;
       _colorGroups = result.colors;
-      _gCode = PathExtractor.toGCode(result.points, embroidery: true);
+      _gCode = generateAdvancedGCode(
+        points: result.points,
+        colorGroups: result.colors,
+        programName: _designName ?? 'Image_Design',
+      );
       _message = result.points.isEmpty
           ? 'No path found — try lower pitch or another image'
           : 'Extracted ${result.points.length} points across '
@@ -505,6 +500,7 @@ class MachineService extends ChangeNotifier {
     return out;
   }
 
+  // Local Simulation logic...
   List<TuftPoint> _localPath = [];
   int _localIndex = 0;
   double _segT = 0;
@@ -613,7 +609,6 @@ class MachineService extends ChangeNotifier {
         () async {
           final lines = await _link.readCsvLines(path);
           if (lines == null) {
-            // Use already-built program points (web / stub)
             if (_programPoints.length >= 2) {
               _localPath = List<TuftPoint>.from(_programPoints);
               set(_copy(s,
@@ -757,64 +752,58 @@ class MachineService extends ChangeNotifier {
     _haveSeg = true;
   }
 
-void _localTickOnce(double dt) {
-  if (_status.state != MachineState.running || !_haveSeg) return;
+  void _localTickOnce(double dt) {
+    if (_status.state != MachineState.running || !_haveSeg) return;
 
-  _segT += dt;
+    _segT += dt;
 
-  var u = _segDur <= 0 ? 1.0 : _segT / _segDur;
-  if (u > 1) u = 1;
+    var u = _segDur <= 0 ? 1.0 : _segT / _segDur;
+    if (u > 1) u = 1;
 
-  final x = _fromX + (_toX - _fromX) * u;
-  final y = _fromY + (_toY - _fromY) * u;
+    final x = _fromX + (_toX - _fromX) * u;
+    final y = _fromY + (_toY - _fromY) * u;
 
-  final pct = _localPath.length > 1
-      ? 100.0 * (_localIndex + u) / (_localPath.length - 1)
-      : 0.0;
+    final pct = _localPath.length > 1
+        ? 100.0 * (_localIndex + u) / (_localPath.length - 1)
+        : 0.0;
 
-  /*
-   * Needle follows the machine while AUTO is running.
-   *
-   * We keep the needle down during the actual embroidery move.
-   * At the end of the complete path it is raised automatically.
-   */
-  final isLastSegment =
-      _localIndex >= _localPath.length - 2 && u >= 0.999;
+    final isLastSegment =
+        _localIndex >= _localPath.length - 2 && u >= 0.999;
 
-  _status = _copy(
-    _status,
-    x: x,
-    y: y,
-    progPct: pct.clamp(0, 100),
-    pathIndex: _localIndex,
-    needle: !isLastSegment,
-  );
+    _status = _copy(
+      _status,
+      x: x,
+      y: y,
+      progPct: pct.clamp(0, 100),
+      pathIndex: _localIndex,
+      needle: !isLastSegment,
+    );
 
-  _notify();
+    _notify();
 
-  if (u >= 1) {
-    _localIndex++;
+    if (u >= 1) {
+      _localIndex++;
 
-    if (_localIndex >= _localPath.length - 1) {
-      _haveSeg = false;
+      if (_localIndex >= _localPath.length - 1) {
+        _haveSeg = false;
 
-      _status = _copy(
-        _status,
-        x: _localPath.last.x,
-        y: _localPath.last.y,
-        progPct: 100,
-        pathIndex: _localPath.length - 1,
-        state: MachineState.idle,
-        needle: false,
-      );
+        _status = _copy(
+          _status,
+          x: _localPath.last.x,
+          y: _localPath.last.y,
+          progPct: 100,
+          pathIndex: _localPath.length - 1,
+          state: MachineState.idle,
+          needle: false,
+        );
 
-      _notify();
-      return;
+        _notify();
+        return;
+      }
+
+      _beginLocalSeg();
     }
-
-    _beginLocalSeg();
   }
-}
 
   MachineStatus _copy(
     MachineStatus s, {
@@ -861,6 +850,197 @@ void _localTickOnce(double dt) {
       jogStep: jogStep ?? s.jogStep,
     );
   }
+
+  /// Advanced G-Code Engine with Modal commands, Arc Fitting (G2/G3),
+  /// Retract logic, and color separation.
+  static String generateAdvancedGCode({
+    required List<TuftPoint> points,
+    List<ColorGroup> colorGroups = const [],
+    String programName = 'ROVEX_DESIGN',
+    double safeZ = 5.0,
+    double workZ = 0.0,
+    double cutFeed = 3000.0,
+    double travelFeed = 6000.0,
+    double jumpThreshold = 12.0,
+  }) {
+    if (points.isEmpty) return '; ROVEX: Empty point set provided';
+
+    final sb = StringBuffer();
+    sb.writeln('; ============================================');
+    sb.writeln('; ROVEX Advanced G-Code Generator');
+    sb.writeln('; Program Name : $programName');
+    sb.writeln('; Total Points : ${points.length}');
+    sb.writeln('; Color Groups : ${colorGroups.length}');
+    sb.writeln('; ============================================');
+    sb.writeln('G21 ; Set units to millimeters');
+    sb.writeln('G90 ; Set positioning to absolute mode');
+    sb.writeln('G17 ; Select XY plane');
+    sb.writeln('G0 Z${safeZ.toStringAsFixed(2)} ; Retract head to safe height');
+
+    double? activeFeed;
+    String activeMotionMode = '';
+    TuftPoint? currentPt;
+    int currentColorOrder = -1;
+
+    void updateMotionMode(String mode) {
+      activeMotionMode = mode;
+    }
+
+    void applyFeed(double targetFeed) {
+      if (activeFeed != targetFeed) {
+        sb.write(' F${targetFeed.toInt()}');
+        activeFeed = targetFeed;
+      }
+    }
+
+    void moveToPoint(TuftPoint target, {required bool isCutting}) {
+      if (isCutting) {
+        if (activeMotionMode != 'G1') {
+          sb.write('G1');
+          updateMotionMode('G1');
+        }
+        sb.write(' X${target.x.toStringAsFixed(2)} Y${target.y.toStringAsFixed(2)}');
+        applyFeed(cutFeed);
+        sb.writeln();
+      } else {
+        if (activeMotionMode != 'G0') {
+          sb.write('G0');
+          updateMotionMode('G0');
+        }
+        sb.write(' X${target.x.toStringAsFixed(2)} Y${target.y.toStringAsFixed(2)}');
+        applyFeed(travelFeed);
+        sb.writeln();
+      }
+      currentPt = target;
+    }
+
+    int i = 0;
+    while (i < points.length) {
+      final pt = points[i];
+
+      // Detect Color Group Boundaries
+      if (pt.colorOrder != currentColorOrder) {
+        currentColorOrder = pt.colorOrder ?? 0;
+        sb.writeln();
+        sb.writeln('; --- Color Group #$currentColorOrder ---');
+        sb.writeln('M9 ; Disengage needle/tool');
+        sb.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+
+        moveToPoint(pt, isCutting: false);
+        sb.writeln('M8 ; Engage needle/tool');
+        sb.writeln('G0 Z${workZ.toStringAsFixed(2)}');
+        i++;
+        continue;
+      }
+
+      // Detect jumps or gaps within the same color group
+      if (currentPt != null) {
+        final dist = math.sqrt(
+          math.pow(pt.x - currentPt!.x, 2) + math.pow(pt.y - currentPt!.y, 2),
+        );
+
+        if (dist > jumpThreshold) {
+          sb.writeln('; Travel Jump Detected (${dist.toStringAsFixed(1)}mm)');
+          sb.writeln('M9 ; Disengage needle');
+          sb.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+          moveToPoint(pt, isCutting: false);
+          sb.writeln('M8 ; Engage needle');
+          sb.writeln('G0 Z${workZ.toStringAsFixed(2)}');
+          i++;
+          continue;
+        }
+      }
+
+      // Arc Fitting Check (G2 / G3 optimization across 3 points)
+      // Arc Fitting Check (G2 / G3 optimization across 3 points)
+      if (i + 2 < points.length) {
+        final p1 = pt;
+        final p2 = points[i + 1];
+        final p3 = points[i + 2];
+
+        // التأكد من أن الألوان متطابقة لمنع القفز بين مجموعات الألوان
+        if (p2.colorOrder == currentColorOrder && p3.colorOrder == currentColorOrder) {
+          final arcData = _fitArc(p1, p2, p3);
+          
+          if (arcData != null && arcData.radius > 1.0 && arcData.radius < 500.0) {
+            final String gCmd = arcData.isClockwise ? 'G2' : 'G3';
+            
+            if (activeMotionMode != gCmd) {
+              sb.write(gCmd);
+              updateMotionMode(gCmd);
+            }
+            
+            sb.write(' X${p3.x.toStringAsFixed(2)} Y${p3.y.toStringAsFixed(2)} I${arcData.i.toStringAsFixed(2)} J${arcData.j.toStringAsFixed(2)}');
+            applyFeed(cutFeed);
+            sb.writeln();
+
+            currentPt = p3;
+            i += 3; // تخطي الـ 3 نقاط التي تم دمجها في القوس
+            continue;
+          }
+        }
+      }
+
+      // Standard linear movement
+      moveToPoint(pt, isCutting: true);
+      i++;
+    }
+
+    // Program Footer
+    sb.writeln();
+    sb.writeln('; --- Program End Cleanup ---');
+    sb.writeln('M9 ; Disengage tool');
+    sb.writeln('G0 Z${safeZ.toStringAsFixed(2)} ; Retract to safe Z');
+    sb.writeln('G0 X0.00 Y0.00 ; Return to origin');
+    sb.writeln('M30 ; End of program');
+
+    return sb.toString();
+  }
+
+  /// Calculates arc parameters (I, J offsets and direction) for 3 collinear or circular points.
+  static ArcFittingResult? _fitArc(TuftPoint p1, TuftPoint p2, TuftPoint p3) {
+    final d = 2 * (p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y));
+    if (d.abs() < 1e-4) return null; // Points are linear, skip arc fitting
+
+    final ux = ((p1.x * p1.x + p1.y * p1.y) * (p2.y - p3.y) +
+            (p2.x * p2.x + p2.y * p2.y) * (p3.y - p1.y) +
+            (p3.x * p3.x + p3.y * p3.y) * (p1.y - p2.y)) /
+        d;
+
+    final uy = ((p1.x * p1.x + p1.y * p1.y) * (p3.x - p2.x) +
+            (p2.x * p2.x + p2.y * p2.y) * (p1.x - p3.x) +
+            (p3.x * p3.x + p3.y * p3.y) * (p2.x - p1.x)) /
+        d;
+
+    final radius = math.sqrt(math.pow(p1.x - ux, 2) + math.pow(p1.y - uy, 2));
+    final i = ux - p1.x;
+    final j = uy - p1.y;
+
+    // Cross product to determine arc direction (Clockwise vs Counter-Clockwise)
+    final crossProduct = (p2.x - p1.x) * (p3.y - p1.y) - (p2.y - p1.y) * (p3.x - p1.x);
+    final isClockwise = crossProduct < 0;
+
+    return ArcFittingResult(
+      i: i,
+      j: j,
+      radius: radius,
+      isClockwise: isClockwise,
+    );
+  }
+}
+
+class ArcFittingResult {
+  final double i;
+  final double j;
+  final double radius;
+  final bool isClockwise;
+
+  const ArcFittingResult({
+    required this.i,
+    required this.j,
+    required this.radius,
+    required this.isClockwise,
+  });
 }
 
 class PlcMacro {
@@ -885,8 +1065,7 @@ class PlcMacro {
     PlcMacro(name: 'Needle OFF', code: 'M9', note: 'Retract needle'),
     PlcMacro(name: 'Coolant aux', code: 'M7', note: 'Optional aux output'),
     PlcMacro(name: 'Spindle stop', code: 'M5', note: 'Safe stop aux'),
-    PlcMacro(
-        name: 'Safe Z', code: 'G0 Z5', note: 'Raise embroidery head'),
+    PlcMacro(name: 'Safe Z', code: 'G0 Z5', note: 'Raise embroidery head'),
     PlcMacro(
         name: 'Stitch depth',
         code: 'G1 Z0 F800',
@@ -894,7 +1073,6 @@ class PlcMacro {
   ];
 }
 
-/// Top-level for `compute()` — keeps UI isolate free.
 ExtractResult _extractIsolate(Map<String, dynamic> args) {
   return PathExtractor.extractMultiColor(
     args['bytes'] as Uint8List,
@@ -902,7 +1080,6 @@ ExtractResult _extractIsolate(Map<String, dynamic> args) {
   );
 }
 
-/// Top-level for `compute()` — parses a DXF into an exact stitch path.
 ExtractResult _dxfExtractIsolate(Map<String, dynamic> args) {
   return DxfExtractor.extractFromBytes(args['bytes'] as Uint8List);
 }
