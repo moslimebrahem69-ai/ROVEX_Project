@@ -16,29 +16,15 @@ class PathPreview extends StatelessWidget {
     final s = svc.status;
     final colorGroups = svc.colorGroups;
     final activeColor = svc.activeColorOrder;
-    final designImage = svc.designImage;
+
 
     return Container(
       color: HmiColors.bg,
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // =========================================================
-          // ORIGINAL DESIGN IMAGE
-          // =========================================================
 
-          if (designImage != null)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(40),
-                child: Image.memory(
-                  designImage,
-                  fit: BoxFit.contain,
-                  filterQuality: FilterQuality.high,
-                ),
-              ),
-            ),
-
+         
           // =========================================================
           // TOOLPATH + MACHINE HEAD
           // =========================================================
@@ -56,10 +42,10 @@ class PathPreview extends StatelessWidget {
           // EMPTY STATE
           // =========================================================
 
-          if (pts.isEmpty && designImage == null)
+          if (pts.isEmpty)
             const Center(
               child: Text(
-                'No program loaded\nOpen DESIGN → Optimize → Load to AUTO',
+                'No toolpath loaded\nOpen DESIGN → Optimize → Load to AUTO',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: HmiColors.textMute,
@@ -72,7 +58,7 @@ class PathPreview extends StatelessWidget {
           // PROGRAM NAME
           // =========================================================
 
-          if (pts.isNotEmpty || designImage != null)
+              if (pts.isNotEmpty)
             Align(
               alignment: Alignment.topLeft,
               child: Padding(
