@@ -143,15 +143,15 @@ class Needle3dAreaBody extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: CustomPaint(
-               painter: _Machine3dPainter(
-                 x: s.x,
+                painter: _Machine3dPainter(
+                  x: s.x,
                   y: s.y,
                   z: s.z,
-                      needleDown: s.needle,
-                     programPoints: svc.programPoints,
-                     pathIndex: s.pathIndex,
-            running: s.state == MachineState.running,
-                    ),
+                  needleDown: s.needle,
+                  programPoints: svc.programPoints,
+                  pathIndex: s.pathIndex,
+                  running: s.state == MachineState.running,
+                ),
                 child: const SizedBox.expand(),
               ),
             ),
@@ -197,14 +197,14 @@ class _Machine3dPainter extends CustomPainter {
   final bool running;
 
   _Machine3dPainter({
-  required this.x,
-  required this.y,
-  required this.z,
-  required this.needleDown,
-  required this.programPoints,
-  required this.pathIndex,
-  required this.running,
-});
+    required this.x,
+    required this.y,
+    required this.z,
+    required this.needleDown,
+    required this.programPoints,
+    required this.pathIndex,
+    required this.running,
+  });
 
   // ============================================================
   // MACHINE BED
@@ -218,68 +218,68 @@ class _Machine3dPainter extends CustomPainter {
   // ============================================================
 
   Offset _project(
-  double x,
-  double y,
-  double z,
-  Size size,
-  double scale,
-) {
-  // Center relative to machine bed center
-  final cx = x - (bedWidth / 2);
-  final cy = y - (bedHeight / 2);
+    double x,
+    double y,
+    double z,
+    Size size,
+    double scale,
+  ) {
+    // Center relative to machine bed center
+    final cx = x - (bedWidth / 2);
+    final cy = y - (bedHeight / 2);
 
-  final isoX = (cx - cy) * 0.52 * scale;
-  final isoY = (cx + cy) * 0.25 * scale - z * 0.65 * scale;
+    final isoX = (cx - cy) * 0.52 * scale;
+    final isoY = (cx + cy) * 0.25 * scale - z * 0.65 * scale;
 
-  return Offset(
-    size.width * 0.5 + isoX,
-    size.height * 0.5 + isoY, // تمركز رأسي ودقيق في المنتصف
-  );
- }
+    return Offset(
+      size.width * 0.5 + isoX,
+      size.height * 0.5 + isoY, // Centered vertically and horizontally
+    );
+  }
 
   // ============================================================
   // CALCULATE SCALE TO FIT THE COMPLETE BED
   // ============================================================
 
-double _calculateScale(Size size) {
-  final points = [
-    const Offset(0, 0),
-    const Offset(bedWidth, 0),
-    const Offset(bedWidth, bedHeight),
-    const Offset(0, bedHeight),
-  ];
+  double _calculateScale(Size size) {
+    final points = [
+      const Offset(0, 0),
+      const Offset(bedWidth, 0),
+      const Offset(bedWidth, bedHeight),
+      const Offset(0, bedHeight),
+    ];
 
-  double minX = double.infinity;
-  double maxX = double.negativeInfinity;
-  double minY = double.infinity;
-  double maxY = double.negativeInfinity;
+    double minX = double.infinity;
+    double maxX = double.negativeInfinity;
+    double minY = double.infinity;
+    double maxY = double.negativeInfinity;
 
-  for (final point in points) {
-    final cx = point.dx - (bedWidth / 2);
-    final cy = point.dy - (bedHeight / 2);
+    for (final point in points) {
+      final cx = point.dx - (bedWidth / 2);
+      final cy = point.dy - (bedHeight / 2);
 
-    final px = (cx - cy) * 0.52;
-    final py = (cx + cy) * 0.25;
+      final px = (cx - cy) * 0.52;
+      final py = (cx + cy) * 0.25;
 
-    minX = math.min(minX, px);
-    maxX = math.max(maxX, px);
-    minY = math.min(minY, py);
-    maxY = math.max(maxY, py);
+      minX = math.min(minX, px);
+      maxX = math.max(maxX, px);
+      minY = math.min(minY, py);
+      maxY = math.max(maxY, py);
+    }
+
+    final projectedWidth = maxX - minX;
+    final projectedHeight = maxY - minY;
+
+    const padding = 40.0; // Safety margin around the machine bed
+
+    final availableWidth = math.max(1.0, size.width - padding * 2);
+    final availableHeight = math.max(1.0, size.height - padding * 2);
+
+    final scaleX = availableWidth / projectedWidth;
+    final scaleY = availableHeight / projectedHeight;
+
+    return math.min(scaleX, scaleY);
   }
-
-  final projectedWidth = maxX - minX;
-  final projectedHeight = maxY - minY;
-
-  const padding = 40.0; // هامش أمان أوسع حول الماكينة
-
-  final availableWidth = math.max(1.0, size.width - padding * 2);
-  final availableHeight = math.max(1.0, size.height - padding * 2);
-
-  final scaleX = availableWidth / projectedWidth;
-  final scaleY = availableHeight / projectedHeight;
-
-  return math.min(scaleX, scaleY);
-}
 
   // ============================================================
   // PAINT
@@ -415,6 +415,68 @@ double _calculateScale(Size size) {
         3,
         cornerPaint,
       );
+    }
+
+    // ------------------------------------------------------------
+    // PROGRAM DRAWING PATH
+    // ------------------------------------------------------------
+
+    if (programPoints.isNotEmpty) {
+      // 1. Draw complete design path preview
+      final pathPaint = Paint()
+        ..color = HmiColors.gold.withValues(alpha: 0.35)
+        ..strokeWidth = 1.5
+        ..style = PaintingStyle.stroke;
+
+      final path = Path();
+      for (int i = 0; i < programPoints.length; i++) {
+        final pt = programPoints[i];
+        final projected = _project(pt.x, pt.y, 0, size, scale);
+        if (i == 0) {
+          path.moveTo(projected.dx, projected.dy);
+        } else {
+          path.lineTo(projected.dx, projected.dy);
+        }
+      }
+      canvas.drawPath(path, pathPaint);
+
+      // 2. Draw executed path during execution
+      if (pathIndex > 0) {
+        final executedPaint = Paint()
+          ..color = HmiColors.ready
+          ..strokeWidth = 2.0
+          ..style = PaintingStyle.stroke;
+
+        final executedPath = Path();
+        final maxIdx = math.min(pathIndex, programPoints.length - 1);
+        for (int i = 0; i <= maxIdx; i++) {
+          final pt = programPoints[i];
+          final projected = _project(pt.x, pt.y, 0, size, scale);
+          if (i == 0) {
+            executedPath.moveTo(projected.dx, projected.dy);
+          } else {
+            executedPath.lineTo(projected.dx, projected.dy);
+          }
+        }
+        canvas.drawPath(executedPath, executedPaint);
+      }
+
+      // 3. Draw individual tuft points
+      final pointPaint = Paint()
+        ..color = HmiColors.accent
+        ..style = PaintingStyle.fill;
+
+      for (int i = 0; i < programPoints.length; i++) {
+        final pt = programPoints[i];
+        final projected = _project(pt.x, pt.y, 0, size, scale);
+        final isCurrent = i == pathIndex;
+
+        canvas.drawCircle(
+          projected,
+          isCurrent ? 4.0 : 1.5,
+          isCurrent ? (Paint()..color = HmiColors.alarm) : pointPaint,
+        );
+      }
     }
 
     // ------------------------------------------------------------
@@ -568,13 +630,14 @@ double _calculateScale(Size size) {
   }
 
   @override
-  bool shouldRepaint(
-    covariant _Machine3dPainter oldDelegate,
-  ) {
+  bool shouldRepaint(covariant _Machine3dPainter oldDelegate) {
     return oldDelegate.x != x ||
         oldDelegate.y != y ||
         oldDelegate.z != z ||
-        oldDelegate.needleDown != needleDown;
+        oldDelegate.needleDown != needleDown ||
+        oldDelegate.pathIndex != pathIndex ||
+        oldDelegate.programPoints != programPoints ||
+        oldDelegate.running != running;
   }
 }
 
