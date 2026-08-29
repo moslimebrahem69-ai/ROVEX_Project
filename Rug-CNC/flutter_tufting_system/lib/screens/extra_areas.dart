@@ -218,20 +218,24 @@ class _Machine3dPainter extends CustomPainter {
   // ============================================================
 
   Offset _project(
-    double x,
-    double y,
-    double z,
-    Size size,
-    double scale,
-  ) {
-    final isoX = (x - y) * 0.52 * scale;
-    final isoY = (x + y) * 0.25 * scale - z * 0.65 * scale;
+  double x,
+  double y,
+  double z,
+  Size size,
+  double scale,
+) {
+  // Center relative to machine bed center
+  final cx = x - (bedWidth / 2);
+  final cy = y - (bedHeight / 2);
 
-    return Offset(
-      size.width * 0.5 + isoX,
-      size.height * 0.53 + isoY,
-    );
-  }
+  final isoX = (cx - cy) * 0.52 * scale;
+  final isoY = (cx + cy) * 0.25 * scale - z * 0.65 * scale;
+
+  return Offset(
+    size.width * 0.5 + isoX,
+    size.height * 0.5 + isoY, // تمركز رأسي ودقيق في المنتصف
+  );
+ }
 
   // ============================================================
   // CALCULATE SCALE TO FIT THE COMPLETE BED
@@ -251,25 +255,25 @@ double _calculateScale(Size size) {
   double maxY = double.negativeInfinity;
 
   for (final point in points) {
-    final px = (point.dx - point.dy) * 0.52;
-    final py = (point.dx + point.dy) * 0.25;
+    final cx = point.dx - (bedWidth / 2);
+    final cy = point.dy - (bedHeight / 2);
 
-        minX = math.min(minX, px);
-         maxX = math.max(maxX, px);
-         minY = math.min(minY, py);
-      maxY = math.max(maxY, py);
-   }
+    final px = (cx - cy) * 0.52;
+    final py = (cx + cy) * 0.25;
+
+    minX = math.min(minX, px);
+    maxX = math.max(maxX, px);
+    minY = math.min(minY, py);
+    maxY = math.max(maxY, py);
+  }
 
   final projectedWidth = maxX - minX;
   final projectedHeight = maxY - minY;
 
-  const padding = 32.0;
+  const padding = 40.0; // هامش أمان أوسع حول الماكينة
 
-  final availableWidth =
-      math.max(1.0, size.width - padding * 2);
-
-  final availableHeight =
-      math.max(1.0, size.height - padding * 2);
+  final availableWidth = math.max(1.0, size.width - padding * 2);
+  final availableHeight = math.max(1.0, size.height - padding * 2);
 
   final scaleX = availableWidth / projectedWidth;
   final scaleY = availableHeight / projectedHeight;
