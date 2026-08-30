@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:provider/provider.dart';
 
@@ -10,6 +11,7 @@ import '../l10n/l10n.dart';
 import '../models/machine_status.dart';
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
+import '../widgets/hmi_button.dart';
 import '../widgets/path_preview.dart';
 
 class MachineAreaBody extends StatelessWidget {
@@ -209,8 +211,8 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
       );
 
       return Uint8List.fromList(
-  img.encodePng(cropped),
-);
+        img.encodePng(cropped),
+      );
     }
 
     final cropHeight =
@@ -228,8 +230,8 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
     );
 
     return Uint8List.fromList(
-  img.encodePng(cropped),
-);
+      img.encodePng(cropped),
+    );
   }
 
   Future<void> _pick(MachineService service) async {
@@ -353,7 +355,6 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
         child: Row(
           children: [
             Expanded(
-              flex: 3,
               child: _DesignDropArea(
                 dragging: _dragging,
                 service: service,
@@ -363,16 +364,8 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
             ),
             const SizedBox(width: 12),
             SizedBox(
-              width: 300,
+              width: 320,
               child: _DesignControls(
-                service: service,
-                localization: t,
-              ),
-            ),
-            const SizedBox(width: 12),
-            SizedBox(
-              width: 280,
-              child: _GCodePanel(
                 service: service,
                 localization: t,
               ),
@@ -500,9 +493,18 @@ class _DesignControls extends StatelessWidget {
     required this.localization,
   });
 
+  String _label(String key, String fallback) {
+    final value = localization.t(key);
+    return value == key ? fallback : value;
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = localization;
+    final extracting = service.isExtracting;
+    final canExtract = service.hasDesign && !extracting;
+    final canOptimize =
+        service.programPoints.length >= 2 && !extracting;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -510,8 +512,7 @@ class _DesignControls extends StatelessWidget {
         Expanded(
           child: SingleChildScrollView(
             child: Column(
-              crossAxisAlignment:
-                  CrossAxisAlignment.stretch,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   service.designName ?? '—',
@@ -520,10 +521,11 @@ class _DesignControls extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                const SizedBox(height: 4),
                 Text(
                   '${t.t('path_points')}: '
                   '${service.programPoints.length}'
-                  '${service.isExtracting ? ' …' : ''}',
+                  '${extracting ? ' …' : ''}',
                   style: const TextStyle(
                     color: HmiColors.textDim,
                   ),
@@ -542,43 +544,65 @@ class _DesignControls extends StatelessWidget {
                     fontSize: 11,
                   ),
                 ),
-                Slider(
-                  value: service.extractPitchMm,
-                  min: 2,
-                  max: 20,
-                  divisions: 18,
-                  onChanged: service.isExtracting
-                      ? null
-                      : service.setExtractPitch,
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    activeTrackColor: HmiColors.accent,
+                    inactiveTrackColor: HmiColors.border,
+                    thumbColor: HmiColors.accentStrong,
+                    overlayColor: HmiColors.accent.withValues(
+                      alpha: 0.16,
+                    ),
+                  ),
+                  child: Slider(
+                    value: service.extractPitchMm,
+                    min: 2,
+                    max: 20,
+                    divisions: 18,
+                    onChanged: extracting
+                        ? null
+                        : service.setExtractPitch,
+                  ),
                 ),
-                ElevatedButton(
-                  onPressed: service.hasDesign &&
-                          !service.isExtracting
+                HmiButton(
+                  label: extracting
+                      ? '…'
+                      : t.t('extract_path'),
+                  icon: Icons.auto_fix_high,
+                  fullWidth: true,
+                  type: HmiButtonType.start,
+                  enabled: canExtract,
+                  onPressed: canExtract
                       ? service.extractPathFromDesign
                       : null,
-                  child: Text(
-                    service.isExtracting
-                        ? '…'
-                        : t.t('extract_path'),
-                  ),
                 ),
                 const SizedBox(height: 8),
-                ElevatedButton(
-                  onPressed:
-                      service.programPoints.length < 2 ||
-                              service.isExtracting
-                          ? null
-                          : () => service
-                              .buildAndLoadProgramFromDesign(
-                                name:
-                                    service.designName ??
-                                        'design',
-                                points:
-                                    service.programPoints,
-                              ),
-                  child: Text(
-                    t.t('optimize_load'),
-                  ),
+                HmiButton(
+                  label: t.t('optimize_load'),
+                  icon: Icons.route,
+                  fullWidth: true,
+                  enabled: canOptimize,
+                  onPressed: canOptimize
+                      ? () =>
+                          service.buildAndLoadProgramFromDesign(
+                            name: service.designName ??
+                                'design',
+                            points: service.programPoints,
+                          )
+                      : null,
+                ),
+                const SizedBox(height: 8),
+                HmiButton(
+                  label: _label('view_code', 'VIEW CODE'),
+                  icon: Icons.terminal,
+                  fullWidth: true,
+                  type: HmiButtonType.active,
+                  onPressed: () {
+                    showProgramCodeStudio(
+                      context: context,
+                      service: service,
+                      localization: localization,
+                    );
+                  },
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton(
@@ -590,6 +614,13 @@ class _DesignControls extends StatelessWidget {
                       MachineMode.auto,
                     );
                   },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: HmiColors.text,
+                    side: const BorderSide(
+                      color: HmiColors.border,
+                    ),
+                    minimumSize: const Size.fromHeight(46),
+                  ),
                   child: Text(
                     t.t('machine'),
                   ),
@@ -599,8 +630,7 @@ class _DesignControls extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        const SizedBox(
-          height: 150,
+        const Expanded(
           child: PathPreview(),
         ),
       ],
@@ -655,81 +685,498 @@ class _ColorSummary extends StatelessWidget {
   }
 }
 
-class _GCodePanel extends StatelessWidget {
+Future<void> showProgramCodeStudio({
+  required BuildContext context,
+  required MachineService service,
+  required L10n localization,
+}) {
+  return showGeneralDialog<void>(
+    context: context,
+    barrierDismissible: true,
+    barrierLabel: 'Dismiss',
+    barrierColor: HmiColors.scrim,
+    transitionDuration: HmiColors.motionStandard,
+    pageBuilder: (context, animation, secondaryAnimation) {
+      return const SizedBox.shrink();
+    },
+    transitionBuilder: (context, animation, secondaryAnimation, child) {
+      return FadeTransition(
+        opacity: animation,
+        child: ScaleTransition(
+          scale: Tween<double>(begin: 0.98, end: 1).animate(
+            CurvedAnimation(
+              parent: animation,
+              curve: HmiColors.entranceCurve,
+            ),
+          ),
+          child: _ProgramCodeStudio(
+            service: service,
+            localization: localization,
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _ProgramCodeStudio extends StatefulWidget {
   final MachineService service;
   final L10n localization;
 
-  const _GCodePanel({
+  const _ProgramCodeStudio({
     required this.service,
     required this.localization,
   });
 
+  @override
+  State<_ProgramCodeStudio> createState() =>
+      _ProgramCodeStudioState();
+}
+
+class _ProgramCodeStudioState extends State<_ProgramCodeStudio> {
   static const int _maxPreviewLength = 8000;
 
+  int _tab = 0;
+
+  String _label(String key, String fallback) {
+    final value = widget.localization.t(key);
+    return value == key ? fallback : value;
+  }
+
   String get _displayedGCode {
-    if (service.gCode.isEmpty) {
+    final code = widget.service.gCode;
+
+    if (code.isEmpty) {
       return '; Extract path to generate G-code';
     }
 
-    if (service.gCode.length <= _maxPreviewLength) {
-      return service.gCode;
+    if (code.length <= _maxPreviewLength) {
+      return code;
     }
 
-    return '${service.gCode.substring(0, _maxPreviewLength)}\n'
+    return '${code.substring(0, _maxPreviewLength)}\n'
         '; … truncated for UI speed';
+  }
+
+  List<_MCodeRow> get _mCodeRows {
+    final used = <String>{};
+    final match = RegExp(r'\bM\d+\b');
+
+    for (final found in match.allMatches(widget.service.gCode)) {
+      used.add(found.group(0)!);
+    }
+
+    const known = <String, String>{
+      'M8': 'Engage needle / tool',
+      'M9': 'Disengage needle / tool',
+      'M30': 'End of program',
+    };
+
+    final rows = <_MCodeRow>[];
+
+    for (final code in used.toList()..sort()) {
+      rows.add(
+        _MCodeRow(
+          code: code,
+          name: known[code] ?? 'Program M-code',
+          note: used.contains(code)
+              ? 'Used in current program'
+              : '',
+          runnable: false,
+        ),
+      );
+    }
+
+    for (final macro in widget.service.plcMacros) {
+      rows.add(
+        _MCodeRow(
+          code: macro.code,
+          name: macro.name,
+          note: macro.note,
+          runnable: true,
+          macro: macro,
+        ),
+      );
+    }
+
+    return rows;
+  }
+
+  Future<void> _copy(String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(_label('copied', 'Copied to clipboard')),
+        backgroundColor: HmiColors.accentSurface,
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.stretch,
-      children: [
-        Row(
-          children: [
-            Text(
-              localization.t('gcode'),
-              style: const TextStyle(
-                color: HmiColors.accent,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const Spacer(),
-            TextButton(
-              onPressed: service.regenerateGCode,
-              child: const Text(
-                '↻',
-                style: TextStyle(
-                  color: HmiColors.accent,
-                ),
-              ),
-            ),
-          ],
-        ),
-        Expanded(
+    final service = widget.service;
+    final size = MediaQuery.sizeOf(context);
+
+    return Center(
+      child: Material(
+        color: Colors.transparent,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: (size.width * 0.78).clamp(720, 1100),
+            maxHeight: (size.height * 0.82).clamp(480, 860),
+          ),
           child: Container(
-            padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: const Color(0xFF0D141C),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: HmiColors.border,
+              color: HmiColors.dialog,
+              borderRadius: BorderRadius.circular(
+                HmiColors.radiusXLarge,
               ),
-            ),
-            child: SingleChildScrollView(
-              child: SelectableText(
-                _displayedGCode,
-                style: const TextStyle(
-                  color: Color(0xFF7CF5C8),
-                  fontFamily: 'Consolas',
-                  fontSize: 11,
-                  height: 1.35,
+              border: Border.all(color: HmiColors.border),
+              boxShadow: const [
+                BoxShadow(
+                  color: HmiColors.shadowStrong,
+                  blurRadius: 28,
+                  offset: Offset(0, 12),
                 ),
-              ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 8, 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 4,
+                        height: 22,
+                        decoration: BoxDecoration(
+                          color: HmiColors.accent,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment:
+                              CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _label(
+                                'code_studio_title',
+                                'PROGRAM CODE',
+                              ),
+                              style: const TextStyle(
+                                color: HmiColors.text,
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 0.4,
+                              ),
+                            ),
+                            Text(
+                              '${service.designName ?? 'ROVEX'}  ·  '
+                              '${service.programPoints.length} pts',
+                              style: const TextStyle(
+                                color: HmiColors.textMute,
+                                fontSize: 11.5,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: service.regenerateGCode,
+                        child: Text(
+                          _label('regenerate', '↻ REGENERATE'),
+                          style: const TextStyle(
+                            color: HmiColors.accent,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Close',
+                        onPressed: () => Navigator.of(context).pop(),
+                        icon: const Icon(
+                          Icons.close,
+                          color: HmiColors.textDim,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 18),
+                  child: Row(
+                    children: [
+                      _CodeTab(
+                        label: _label('gcode', 'G-CODE'),
+                        selected: _tab == 0,
+                        onTap: () => setState(() => _tab = 0),
+                      ),
+                      const SizedBox(width: 8),
+                      _CodeTab(
+                        label: _label('mcode', 'M-CODE'),
+                        selected: _tab == 1,
+                        onTap: () => setState(() => _tab = 1),
+                      ),
+                      const Spacer(),
+                      TextButton.icon(
+                        onPressed: () => _copy(
+                          _tab == 0
+                              ? service.gCode
+                              : _mCodeRows
+                                  .map((row) =>
+                                      '${row.code}  ${row.name}')
+                                  .join('\n'),
+                        ),
+                        icon: const Icon(
+                          Icons.copy,
+                          size: 16,
+                          color: HmiColors.textDim,
+                        ),
+                        label: Text(
+                          _label('copy_code', 'COPY'),
+                          style: const TextStyle(
+                            color: HmiColors.textDim,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: HmiColors.previewBg,
+                        borderRadius: BorderRadius.circular(
+                          HmiColors.radiusLarge,
+                        ),
+                        border: Border.all(color: HmiColors.border),
+                      ),
+                      child: _tab == 0
+                          ? _GCodeEditor(text: _displayedGCode)
+                          : _MCodeTable(
+                              rows: _mCodeRows,
+                              onRun: (macro) {
+                                service.runPlcMacro(macro);
+                              },
+                            ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+class _CodeTab extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _CodeTab({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: HmiColors.motionFast,
+        padding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 8,
+        ),
+        decoration: BoxDecoration(
+          color: selected
+              ? HmiColors.accentSurface
+              : HmiColors.softkey,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected
+                ? HmiColors.borderAccent
+                : HmiColors.border,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: selected ? HmiColors.accentStrong : HmiColors.textDim,
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 0.4,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GCodeEditor extends StatelessWidget {
+  final String text;
+
+  const _GCodeEditor({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final lines = text.split('\n');
+
+    return Scrollbar(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(14),
+        child: SelectableText.rich(
+          TextSpan(
+            children: [
+              for (final line in lines) _spanForLine(line),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  TextSpan _spanForLine(String line) {
+    const base = TextStyle(
+      fontFamily: 'Consolas',
+      fontSize: 12,
+      height: 1.4,
+    );
+
+    final trimmed = line.trimLeft();
+    Color color = HmiColors.previewPath;
+
+    if (trimmed.startsWith(';')) {
+      color = HmiColors.textMute;
+    } else if (RegExp(r'^M\d+').hasMatch(trimmed)) {
+      color = HmiColors.warn;
+    } else if (RegExp(r'^G\d+').hasMatch(trimmed)) {
+      color = HmiColors.dro;
+    }
+
+    return TextSpan(
+      text: '$line\n',
+      style: base.copyWith(color: color),
+    );
+  }
+}
+
+class _MCodeRow {
+  final String code;
+  final String name;
+  final String note;
+  final bool runnable;
+  final PlcMacro? macro;
+
+  const _MCodeRow({
+    required this.code,
+    required this.name,
+    required this.note,
+    required this.runnable,
+    this.macro,
+  });
+}
+
+class _MCodeTable extends StatelessWidget {
+  final List<_MCodeRow> rows;
+  final ValueChanged<PlcMacro> onRun;
+
+  const _MCodeTable({
+    required this.rows,
+    required this.onRun,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (rows.isEmpty) {
+      return const Center(
+        child: Text(
+          'No M-codes in the current program.',
+          style: TextStyle(color: HmiColors.textMute),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.all(10),
+      itemCount: rows.length,
+      separatorBuilder: (_, __) => const Divider(
+        height: 1,
+        color: HmiColors.divider,
+      ),
+      itemBuilder: (context, index) {
+        final row = rows[index];
+
+        return ListTile(
+          dense: true,
+          leading: Container(
+            width: 56,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(
+              horizontal: 6,
+              vertical: 4,
+            ),
+            decoration: BoxDecoration(
+              color: HmiColors.warnSurface,
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(
+                color: HmiColors.warn.withValues(alpha: 0.45),
+              ),
+            ),
+            child: Text(
+              row.code,
+              style: const TextStyle(
+                color: HmiColors.warn,
+                fontWeight: FontWeight.w800,
+                fontFamily: 'Consolas',
+                fontSize: 12,
+              ),
+            ),
+          ),
+          title: Text(
+            row.name,
+            style: const TextStyle(
+              color: HmiColors.text,
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+          subtitle: row.note.isEmpty
+              ? null
+              : Text(
+                  row.note,
+                  style: const TextStyle(
+                    color: HmiColors.textMute,
+                    fontSize: 11,
+                  ),
+                ),
+          trailing: row.runnable && row.macro != null
+              ? HmiButton(
+                  label: 'RUN',
+                  width: 72,
+                  height: 36,
+                  type: HmiButtonType.start,
+                  onPressed: () => onRun(row.macro!),
+                )
+              : null,
+        );
+      },
     );
   }
 }
@@ -873,8 +1320,7 @@ class SetupAreaBody extends StatelessWidget {
           children: [
             ChoiceChip(
               label: const Text('SIM'),
-              selected:
-                  service.setupBackend == 'sim',
+              selected: service.setupBackend == 'sim',
               onSelected: (_) {
                 service.setSetup(
                   backend: 'sim',
@@ -883,8 +1329,7 @@ class SetupAreaBody extends StatelessWidget {
             ),
             ChoiceChip(
               label: const Text('SERIAL (GRBL)'),
-              selected:
-                  service.setupBackend == 'serial',
+              selected: service.setupBackend == 'serial',
               onSelected: (_) {
                 service.setSetup(
                   backend: 'serial',

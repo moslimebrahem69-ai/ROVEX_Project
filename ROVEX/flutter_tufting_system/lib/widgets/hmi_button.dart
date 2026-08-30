@@ -10,6 +10,7 @@ enum HmiButtonType {
   estop,
   connect,
   active,
+  outline,
 }
 
 class HmiButton extends StatefulWidget {
@@ -66,6 +67,9 @@ class _HmiButtonState extends State<HmiButton> {
 
       case HmiButtonType.normal:
         return HmiColors.softkey;
+
+      case HmiButtonType.outline:
+        return HmiColors.panel;
     }
   }
 
@@ -79,7 +83,9 @@ class _HmiButtonState extends State<HmiButton> {
     }
 
     if (_hovered) {
-      return _lighten(_baseColor, 0.07);
+      return widget.type == HmiButtonType.outline
+          ? HmiColors.surfaceHover
+          : _lighten(_baseColor, 0.07);
     }
 
     return _baseColor;
@@ -88,6 +94,14 @@ class _HmiButtonState extends State<HmiButton> {
   Color get _borderColor {
     if (!_isEnabled) {
       return HmiColors.border;
+    }
+
+    if (widget.type == HmiButtonType.outline) {
+      if (_pressed || _hovered) {
+        return HmiColors.borderAccent;
+      }
+
+      return HmiColors.borderStrong;
     }
 
     if (_pressed) {
@@ -109,6 +123,7 @@ class _HmiButtonState extends State<HmiButton> {
     switch (widget.type) {
       case HmiButtonType.normal:
       case HmiButtonType.active:
+      case HmiButtonType.outline:
         return HmiColors.text;
 
       case HmiButtonType.start:
@@ -121,7 +136,9 @@ class _HmiButtonState extends State<HmiButton> {
   }
 
   double get _elevation {
-    if (!_isEnabled || _pressed) {
+    if (!_isEnabled ||
+        _pressed ||
+        widget.type == HmiButtonType.outline) {
       return 0;
     }
 
