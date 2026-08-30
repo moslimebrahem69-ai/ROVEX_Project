@@ -36,16 +36,11 @@ class PathExtractor {
     int maxPoints = 0,
   }) {
     final decoded = img.decodeImage(bytes);
-
     if (decoded == null) {
-      return const ExtractResult(
-        points: [],
-        colors: [],
-      );
+      return const ExtractResult(points: [], colors: []);
     }
 
     img.Image src = decoded;
-
     if (src.width > _maxSide || src.height > _maxSide) {
       src = img.copyResize(
         src,
@@ -57,17 +52,9 @@ class PathExtractor {
 
     final w = src.width;
     final h = src.height;
-
     if (w < 2 || h < 2) {
-      return const ExtractResult(
-        points: [],
-        colors: [],
-      );
+      return const ExtractResult(points: [], colors: []);
     }
-
-    // ------------------------------------------------------------
-    // Visible pixels
-    // ------------------------------------------------------------
 
     final visible = Uint8List(w * h);
     var visibleCount = 0;
@@ -75,7 +62,6 @@ class PathExtractor {
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         final pixel = src.getPixel(x, y);
-
         if (pixel.a.toInt() > _alphaThreshold) {
           visible[y * w + x] = 1;
           visibleCount++;
@@ -84,39 +70,20 @@ class PathExtractor {
     }
 
     if (visibleCount == 0) {
-      return const ExtractResult(
-        points: [],
-        colors: [],
-      );
+      return const ExtractResult(points: [], colors: []);
     }
 
-    // ------------------------------------------------------------
-    // Background
-    // ------------------------------------------------------------
-
-    final background = _estimateBackgroundColor(
-      src,
-      visible,
-      w,
-      h,
-    );
-
+    final background = _estimateBackgroundColor(src, visible, w, h);
     final foreground = Uint8List(w * h);
     var foregroundCount = 0;
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         final index = y * w + x;
-
-        if (visible[index] == 0) {
-          continue;
-        }
+        if (visible[index] == 0) continue;
 
         final pixel = src.getPixel(x, y);
-
-        if (_isBackgroundPixel(pixel, background)) {
-          continue;
-        }
+        if (_isBackgroundPixel(pixel, background)) continue;
 
         foreground[index] = 1;
         foregroundCount++;
@@ -124,83 +91,33 @@ class PathExtractor {
     }
 
     if (foregroundCount == 0) {
-      return const ExtractResult(
-        points: [],
-        colors: [],
-      );
+      return const ExtractResult(points: [], colors: []);
     }
 
-    // ------------------------------------------------------------
-    // Detect grayscale
-    // ------------------------------------------------------------
-
-    final grayscale = _isMostlyGrayscale(
-      src,
-      foreground,
-      w,
-      h,
-    );
-
+    final grayscale = _isMostlyGrayscale(src, foreground, w, h);
     final palette = grayscale
-        ? _buildGrayscaleForegroundPalette(
-            src,
-            foreground,
-            w,
-            h,
-          )
-        : _buildPalette(
-            src,
-            foreground,
-            w,
-            h,
-            _maxColors,
-          );
+        ? _buildGrayscaleForegroundPalette(src, foreground, w, h)
+        : _buildPalette(src, foreground, w, h, _maxColors);
 
     if (palette.isEmpty) {
-      return const ExtractResult(
-        points: [],
-        colors: [],
-      );
+      return const ExtractResult(points: [], colors: []);
     }
 
-    // ------------------------------------------------------------
-    // Assign every foreground pixel to a palette color
-    // ------------------------------------------------------------
-
-    final labels = Int16List(w * h)
-      ..fillRange(
-        0,
-        w * h,
-        -1,
-      );
-
-    final areaByColor = List<int>.filled(
-      palette.length,
-      0,
-    );
+    final labels = Int16List(w * h)..fillRange(0, w * h, -1);
+    final areaByColor = List<int>.filled(palette.length, 0);
 
     final grayscaleThreshold =
         grayscale && palette.length > 1
-            ? _otsuThreshold(
-                src,
-                foreground,
-                w,
-                h,
-              )
+            ? _otsuThreshold(src, foreground, w, h)
             : -1;
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
         final index = y * w + x;
-
-        if (foreground[index] == 0) {
-          continue;
-        }
+        if (foreground[index] == 0) continue;
 
         final pixel = src.getPixel(x, y);
-
-        final rgb =
-            (pixel.r.toInt() << 16) |
+        final rgb = (pixel.r.toInt() << 16) |
             (pixel.g.toInt() << 8) |
             pixel.b.toInt();
 
@@ -210,15 +127,10 @@ class PathExtractor {
           best = _luma(pixel) <= grayscaleThreshold ? 0 : 1;
         } else {
           var bestDistance = 1 << 30;
-
           for (var colorIndex = 0;
               colorIndex < palette.length;
               colorIndex++) {
-            final distance = _rgbDist(
-              rgb,
-              palette[colorIndex],
-            );
-
+            final distance = _rgbDist(rgb, palette[colorIndex]);
             if (distance < bestDistance) {
               bestDistance = distance;
               best = colorIndex;
@@ -231,53 +143,28 @@ class PathExtractor {
       }
     }
 
-    // ------------------------------------------------------------
-    // Process largest regions first
-    // ------------------------------------------------------------
-
     final colorOrder = List<int>.generate(
       palette.length,
       (index) => index,
     )..sort(
-        (a, b) => areaByColor[b].compareTo(
-          areaByColor[a],
-        ),
+        (a, b) => areaByColor[b].compareTo(areaByColor[a]),
       );
 
     final pxPerMmX = w / workWidthMm;
     final pxPerMmY = h / workHeightMm;
-
-    final safePitchMm = pitchMm.clamp(
-      1.0,
-      5.0,
-    );
-
-    final averagePxPerMm =
-        (pxPerMmX + pxPerMmY) / 2.0;
-
-    final pitchPx = math.max(
-      1.0,
-      safePitchMm * averagePxPerMm,
-    );
-
-    // ------------------------------------------------------------
-    // Build paths
-    // ------------------------------------------------------------
+    final safePitchMm = pitchMm.clamp(1.0, 5.0);
+    final averagePxPerMm = (pxPerMmX + pxPerMmY) / 2.0;
+    final pitchPx = math.max(1.0, safePitchMm * averagePxPerMm);
 
     final groups = <ColorGroup>[];
     final allPoints = <TuftPoint>[];
-
     var order = 0;
 
     for (final paletteIndex in colorOrder) {
       final area = areaByColor[paletteIndex];
-
-      if (area <= 0) {
-        continue;
-      }
+      if (area <= 0) continue;
 
       final colorMask = Uint8List(w * h);
-
       for (var index = 0; index < w * h; index++) {
         if (labels[index] == paletteIndex) {
           colorMask[index] = 1;
@@ -293,66 +180,34 @@ class PathExtractor {
         pitchPx,
       );
 
-      if (regionPoints.isEmpty) {
-        continue;
-      }
+      if (regionPoints.isEmpty) continue;
 
       order++;
-
-      final paletteColor =
-          0xFF000000 | palette[paletteIndex];
-
-      var regionPointCount = 0;
-
-      // ----------------------------------------------------------
-      // IMPORTANT:
-      // Preserve the REAL source color for every generated point.
-      //
-      // This prevents the preview from becoming one flat color.
-      // Every point gets the RGB value sampled from the original
-      // image at its actual position.
-      // ----------------------------------------------------------
+      final paletteColor = 0xFF000000 | palette[paletteIndex];
 
       for (final point in regionPoints) {
-        final sourcePixel = _pointToSourcePixel(
-          point,
-          src,
-          workWidthMm,
-          workHeightMm,
-        );
-
-        final realColor = sourcePixel != null
-            ? _pixelToArgb(sourcePixel)
-            : paletteColor;
-
         allPoints.add(
           TuftPoint(
             x: point.x,
             y: point.y,
-            colorValue: realColor,
+            colorValue: paletteColor,
             colorOrder: order,
           ),
         );
-
-        regionPointCount++;
       }
 
       groups.add(
         ColorGroup(
           colorValue: paletteColor,
           order: order,
-          pointCount: regionPointCount,
+          pointCount: regionPoints.length,
         ),
       );
     }
 
     final resultPoints =
-        maxPoints > 0 &&
-                allPoints.length > maxPoints
-            ? _limitPoints(
-                allPoints,
-                maxPoints,
-              )
+        maxPoints > 0 && allPoints.length > maxPoints
+            ? _limitPoints(allPoints, maxPoints)
             : allPoints;
 
     return ExtractResult(
@@ -360,63 +215,6 @@ class PathExtractor {
       colors: groups,
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // Source color sampling
-  // ---------------------------------------------------------------------------
-
-  static img.Pixel? _pointToSourcePixel(
-    TuftPoint point,
-    img.Image src,
-    double workWidthMm,
-    double workHeightMm,
-  ) {
-    if (src.width < 2 || src.height < 2) {
-      return null;
-    }
-
-    final normalizedX =
-        (point.x / workWidthMm).clamp(
-      0.0,
-      1.0,
-    );
-
-    final normalizedY =
-        (1.0 - point.y / workHeightMm).clamp(
-      0.0,
-      1.0,
-    );
-
-    final px = (normalizedX * (src.width - 1))
-        .round()
-        .clamp(
-          0,
-          src.width - 1,
-        );
-
-    final py = (normalizedY * (src.height - 1))
-        .round()
-        .clamp(
-          0,
-          src.height - 1,
-        );
-
-    return src.getPixel(
-      px,
-      py,
-    );
-  }
-
-  static int _pixelToArgb(img.Pixel pixel) {
-    return 0xFF000000 |
-        (pixel.r.toInt() << 16) |
-        (pixel.g.toInt() << 8) |
-        pixel.b.toInt();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Background detection
-  // ---------------------------------------------------------------------------
 
   static int _estimateBackgroundColor(
     img.Image src,
@@ -428,20 +226,10 @@ class PathExtractor {
 
     void addPixel(int x, int y) {
       final index = y * w + x;
+      if (visible[index] == 0) return;
 
-      if (visible[index] == 0) {
-        return;
-      }
-
-      final pixel = src.getPixel(x, y);
-
-      final normalized = _normalizeRgb(
-        pixel,
-        32,
-      );
-
-      histogram[normalized] =
-          (histogram[normalized] ?? 0) + 1;
+      final normalized = _normalizeRgb(src.getPixel(x, y), 32);
+      histogram[normalized] = (histogram[normalized] ?? 0) + 1;
     }
 
     for (var x = 0; x < w; x++) {
@@ -454,9 +242,7 @@ class PathExtractor {
       addPixel(w - 1, y);
     }
 
-    if (histogram.isEmpty) {
-      return 0xFFFFFF;
-    }
+    if (histogram.isEmpty) return 0xFFFFFF;
 
     var bestColor = 0xFFFFFF;
     var bestCount = -1;
@@ -475,28 +261,19 @@ class PathExtractor {
     img.Pixel pixel,
     int background,
   ) {
-    final rgb =
-        (pixel.r.toInt() << 16) |
+    final rgb = (pixel.r.toInt() << 16) |
         (pixel.g.toInt() << 8) |
         pixel.b.toInt();
 
-    final distance = _rgbDist(
-      rgb,
-      background,
-    );
+    final distance = _rgbDist(rgb, background);
 
     final r = pixel.r.toInt();
     final g = pixel.g.toInt();
     final b = pixel.b.toInt();
 
-    final backgroundR =
-        (background >> 16) & 0xFF;
-
-    final backgroundG =
-        (background >> 8) & 0xFF;
-
-    final backgroundB =
-        background & 0xFF;
+    final backgroundR = (background >> 16) & 0xFF;
+    final backgroundG = (background >> 8) & 0xFF;
+    final backgroundB = background & 0xFF;
 
     final maxDifference = math.max(
       (r - backgroundR).abs(),
@@ -506,13 +283,8 @@ class PathExtractor {
       ),
     );
 
-    return distance <= 45 * 45 ||
-        maxDifference <= 18;
+    return distance <= 45 * 45 || maxDifference <= 18;
   }
-
-  // ---------------------------------------------------------------------------
-  // Palette
-  // ---------------------------------------------------------------------------
 
   static List<int> _buildPalette(
     img.Image src,
@@ -523,48 +295,29 @@ class PathExtractor {
   ) {
     const levels = 6;
     const step = 256 / levels;
-
     final histogram = <int, int>{};
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (foreground[y * w + x] == 0) {
-          continue;
-        }
+        if (foreground[y * w + x] == 0) continue;
 
-        final key = _normalizeRgb(
-          src.getPixel(x, y),
-          step,
-        );
-
-        histogram[key] =
-            (histogram[key] ?? 0) + 1;
+        final key = _normalizeRgb(src.getPixel(x, y), step);
+        histogram[key] = (histogram[key] ?? 0) + 1;
       }
     }
 
     final entries = histogram.entries.toList()
-      ..sort(
-        (a, b) => b.value.compareTo(
-          a.value,
-        ),
-      );
+      ..sort((a, b) => b.value.compareTo(a.value));
 
     final palette = <int>[];
 
     for (final entry in entries) {
-      if (palette.length >= maxColors) {
-        break;
-      }
+      if (palette.length >= maxColors) break;
 
       var tooClose = false;
-
       for (final color in palette) {
-        if (_rgbDist(
-              entry.key,
-              color,
-            ) <
-            _colorMergeDist *
-                _colorMergeDist) {
+        if (_rgbDist(entry.key, color) <
+            _colorMergeDist * _colorMergeDist) {
           tooClose = true;
           break;
         }
@@ -589,79 +342,45 @@ class PathExtractor {
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (foreground[y * w + x] == 0) {
-          continue;
-        }
+        if (foreground[y * w + x] == 0) continue;
 
-        final luma = _luma(
-          src.getPixel(x, y),
-        );
-
-        darkest = math.min(
-          darkest,
-          luma,
-        );
-
-        lightest = math.max(
-          lightest,
-          luma,
-        );
+        final luma = _luma(src.getPixel(x, y));
+        darkest = math.min(darkest, luma);
+        lightest = math.max(lightest, luma);
       }
     }
 
-    if (darkest == 255) {
-      return [];
-    }
+    if (darkest == 255) return [];
 
     if ((lightest - darkest) < 20) {
-      return [
-        _grayToRgb(darkest),
-      ];
+      return [_grayToRgb(darkest)];
     }
 
-    final histogram =
-        List<int>.filled(
-      256,
-      0,
-    );
+    final histogram = List<int>.filled(256, 0);
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (foreground[y * w + x] == 0) {
-          continue;
-        }
-
-        histogram[
-          _luma(src.getPixel(x, y))
-        ]++;
+        if (foreground[y * w + x] == 0) continue;
+        histogram[_luma(src.getPixel(x, y))]++;
       }
     }
 
     var first = -1;
     var last = -1;
 
-    for (var i = 0;
-        i < histogram.length;
-        i++) {
+    for (var i = 0; i < histogram.length; i++) {
       if (histogram[i] > 0) {
-        if (first == -1) {
-          first = i;
-        }
-
+        if (first == -1) first = i;
         last = i;
       }
     }
 
-    if (first == -1 || last == -1) {
-      return [];
-    }
+    if (first == -1 || last == -1) return [];
 
     var lowCount = 0;
     var highCount = 0;
 
-    for (var i = first;
-        i <= last;
-        i++) {
+    for (var i = first; i <= last; i++) {
       if (i <= (first + last) ~/ 2) {
         lowCount += histogram[i];
       } else {
@@ -670,17 +389,10 @@ class PathExtractor {
     }
 
     if (lowCount == 0 || highCount == 0) {
-      return [
-        _grayToRgb(
-          (first + last) ~/ 2,
-        ),
-      ];
+      return [_grayToRgb((first + last) ~/ 2)];
     }
 
-    return [
-      0x000000,
-      0xFFFFFF,
-    ];
+    return [0x000000, 0xFFFFFF];
   }
 
   static bool _isMostlyGrayscale(
@@ -694,58 +406,36 @@ class PathExtractor {
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (foreground[y * w + x] == 0) {
-          continue;
-        }
+        if (foreground[y * w + x] == 0) continue;
 
         final pixel = src.getPixel(x, y);
-
         final maxChannel = math.max(
           pixel.r.toInt(),
-          math.max(
-            pixel.g.toInt(),
-            pixel.b.toInt(),
-          ),
+          math.max(pixel.g.toInt(), pixel.b.toInt()),
         );
-
         final minChannel = math.min(
           pixel.r.toInt(),
-          math.min(
-            pixel.g.toInt(),
-            pixel.b.toInt(),
-          ),
+          math.min(pixel.g.toInt(), pixel.b.toInt()),
         );
 
         checked++;
 
-        if (maxChannel - minChannel <=
-            _grayscaleTolerance) {
+        if (maxChannel - minChannel <= _grayscaleTolerance) {
           grayscalePixels++;
         }
 
-        if (checked >= 20000) {
-          break;
-        }
+        if (checked >= 20000) break;
       }
 
-      if (checked >= 20000) {
-        break;
-      }
+      if (checked >= 20000) break;
     }
 
-    return checked > 0 &&
-        grayscalePixels / checked >= 0.95;
+    return checked > 0 && grayscalePixels / checked >= 0.95;
   }
 
   static int _grayToRgb(int value) {
-    final v = value.clamp(
-      0,
-      255,
-    );
-
-    return (v << 16) |
-        (v << 8) |
-        v;
+    final v = value.clamp(0, 255);
+    return (v << 16) | (v << 8) | v;
   }
 
   static int _normalizeRgb(
@@ -756,53 +446,30 @@ class PathExtractor {
     final g = pixel.g.toInt();
     final b = pixel.b.toInt();
 
-    final maxChannel = math.max(
-      r,
-      math.max(g, b),
-    );
+    final maxChannel = math.max(r, math.max(g, b));
+    final minChannel = math.min(r, math.min(g, b));
 
-    final minChannel = math.min(
-      r,
-      math.min(g, b),
-    );
-
-    if (maxChannel - minChannel <=
-        _grayscaleTolerance) {
+    if (maxChannel - minChannel <= _grayscaleTolerance) {
       final luma = _luma(pixel);
 
-      if (luma >= 245) {
-        return 0xFFFFFF;
-      }
-
-      if (luma <= 10) {
-        return 0x000000;
-      }
+      if (luma >= 245) return 0xFFFFFF;
+      if (luma <= 10) return 0x000000;
     }
 
-    final qr = ((r / step).floor() * step +
-            step / 2)
+    final qr = ((r / step).floor() * step + step / 2)
+        .clamp(0, 255)
+        .toInt();
+    final qg = ((g / step).floor() * step + step / 2)
+        .clamp(0, 255)
+        .toInt();
+    final qb = ((b / step).floor() * step + step / 2)
         .clamp(0, 255)
         .toInt();
 
-    final qg = ((g / step).floor() * step +
-            step / 2)
-        .clamp(0, 255)
-        .toInt();
-
-    final qb = ((b / step).floor() * step +
-            step / 2)
-        .clamp(0, 255)
-        .toInt();
-
-    return (qr << 16) |
-        (qg << 8) |
-        qb;
+    return (qr << 16) | (qg << 8) | qb;
   }
 
-  static int _rgbDist(
-    int a,
-    int b,
-  ) {
+  static int _rgbDist(int a, int b) {
     final ar = (a >> 16) & 0xFF;
     final ag = (a >> 8) & 0xFF;
     final ab = a & 0xFF;
@@ -815,14 +482,8 @@ class PathExtractor {
     final dg = ag - bg;
     final db = ab - bb;
 
-    return dr * dr +
-        dg * dg +
-        db * db;
+    return dr * dr + dg * dg + db * db;
   }
-
-  // ---------------------------------------------------------------------------
-  // Grayscale threshold
-  // ---------------------------------------------------------------------------
 
   static int _otsuThreshold(
     img.Image src,
@@ -830,21 +491,12 @@ class PathExtractor {
     int w,
     int h,
   ) {
-    final histogram =
-        List<int>.filled(
-      256,
-      0,
-    );
+    final histogram = List<int>.filled(256, 0);
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (foreground[y * w + x] == 0) {
-          continue;
-        }
-
-        histogram[
-          _luma(src.getPixel(x, y))
-        ]++;
+        if (foreground[y * w + x] == 0) continue;
+        histogram[_luma(src.getPixel(x, y))]++;
       }
     }
 
@@ -853,65 +505,37 @@ class PathExtractor {
 
     for (var i = 0; i < 256; i++) {
       total += histogram[i];
-      sumTotal +=
-          i * histogram[i];
+      sumTotal += i * histogram[i];
     }
 
-    if (total == 0) {
-      return 127;
-    }
+    if (total == 0) return 127;
 
     var weightBackground = 0;
     var sumBackground = 0.0;
-
     var bestThreshold = 127;
     var bestVariance = -1.0;
 
-    for (var threshold = 0;
-        threshold < 256;
-        threshold++) {
-      weightBackground +=
-          histogram[threshold];
+    for (var threshold = 0; threshold < 256; threshold++) {
+      weightBackground += histogram[threshold];
+      if (weightBackground == 0) continue;
 
-      if (weightBackground == 0) {
-        continue;
-      }
+      final weightForeground = total - weightBackground;
+      if (weightForeground == 0) break;
 
-      final weightForeground =
-          total - weightBackground;
-
-      if (weightForeground == 0) {
-        break;
-      }
-
-      sumBackground +=
-          threshold *
-              histogram[threshold];
+      sumBackground += threshold * histogram[threshold];
 
       final meanBackground =
-          sumBackground /
-              weightBackground;
-
+          sumBackground / weightBackground;
       final meanForeground =
-          (sumTotal -
-                  sumBackground) /
-              weightForeground;
+          (sumTotal - sumBackground) / weightForeground;
 
-      final variance =
-          weightBackground *
-              weightForeground *
-              math.pow(
-                meanBackground -
-                    meanForeground,
-                2,
-              );
+      final variance = weightBackground *
+          weightForeground *
+          math.pow(meanBackground - meanForeground, 2);
 
       if (variance > bestVariance) {
-        bestVariance =
-            variance.toDouble();
-
-        bestThreshold =
-            threshold;
+        bestVariance = variance.toDouble();
+        bestThreshold = threshold;
       }
     }
 
@@ -919,21 +543,12 @@ class PathExtractor {
   }
 
   static int _luma(img.Pixel pixel) {
-    return (
-      0.299 * pixel.r +
-      0.587 * pixel.g +
-      0.114 * pixel.b
-    )
+    return (0.299 * pixel.r +
+            0.587 * pixel.g +
+            0.114 * pixel.b)
         .round()
-        .clamp(
-          0,
-          255,
-        );
+        .clamp(0, 255);
   }
-
-  // ---------------------------------------------------------------------------
-  // Shape extraction
-  // ---------------------------------------------------------------------------
 
   static List<TuftPoint> _pathForColorMask(
     Uint8List mask,
@@ -945,48 +560,23 @@ class PathExtractor {
   ) {
     final out = <TuftPoint>[];
 
-    if (!_containsForeground(mask)) {
-      return out;
-    }
+    if (!_containsForeground(mask)) return out;
 
-    final rowStep = math.max(
-      1.0,
-      pitchPx,
-    );
-
+    final rowStep = math.max(1.0, pitchPx);
     var reverse = false;
 
-    for (var y = 0.0;
-        y < h;
-        y += rowStep) {
-      final row = y.round().clamp(
-        0,
-        h - 1,
-      );
+    for (var y = 0.0; y < h; y += rowStep) {
+      final row = y.round().clamp(0, h - 1);
+      final runs = _findRuns(mask, w, row);
 
-      final runs = _findRuns(
-        mask,
-        w,
-        row,
-      );
+      if (runs.isEmpty) continue;
 
-      if (runs.isEmpty) {
-        continue;
-      }
-
-      final orderedRuns = reverse
-          ? runs.reversed.toList()
-          : runs;
+      final orderedRuns = reverse ? runs.reversed.toList() : runs;
 
       for (final run in orderedRuns) {
-        final startX =
-            run[0].toDouble();
-
-        final endX =
-            run[1].toDouble();
-
-        final width =
-            endX - startX;
+        final startX = run[0].toDouble();
+        final endX = run[1].toDouble();
+        final width = endX - startX;
 
         if (width <= 0) {
           out.add(
@@ -999,25 +589,14 @@ class PathExtractor {
               workH,
             ),
           );
-
           continue;
         }
 
-        final count = math.max(
-          1,
-          (width / pitchPx).round(),
-        );
+        final count = math.max(1, (width / pitchPx).round());
 
-        for (var i = 0;
-            i <= count;
-            i++) {
-          final t = count == 0
-              ? 0.0
-              : i / count;
-
-          final x =
-              startX +
-                  width * t;
+        for (var i = 0; i <= count; i++) {
+          final t = count == 0 ? 0.0 : i / count;
+          final x = startX + width * t;
 
           out.add(
             _pxToMm(
@@ -1051,50 +630,32 @@ class PathExtractor {
     int y,
   ) {
     final runs = <List<int>>[];
-
     var x = 0;
 
     while (x < w) {
-      while (
-          x < w &&
-          mask[y * w + x] == 0) {
+      while (x < w && mask[y * w + x] == 0) {
         x++;
       }
 
-      if (x >= w) {
-        break;
-      }
+      if (x >= w) break;
 
       final start = x;
 
-      while (
-          x + 1 < w &&
-          mask[y * w + x + 1] == 1) {
+      while (x + 1 < w && mask[y * w + x + 1] == 1) {
         x++;
       }
 
-      final end = x;
-
-      runs.add([
-        start,
-        end,
-      ]);
-
+      runs.add([start, x]);
       x++;
     }
 
     return runs;
   }
 
-  static bool _containsForeground(
-    Uint8List mask,
-  ) {
+  static bool _containsForeground(Uint8List mask) {
     for (final value in mask) {
-      if (value == 1) {
-        return true;
-      }
+      if (value == 1) return true;
     }
-
     return false;
   }
 
@@ -1106,73 +667,33 @@ class PathExtractor {
     double workW,
     double workH,
   ) {
-    if (points.length < 2) {
-      return points;
-    }
+    if (points.length < 2) return points;
 
-    final pitchMmX =
-        workW / math.max(
-      1,
-      w - 1,
-    );
-
-    final pitchMmY =
-        workH / math.max(
-      1,
-      h - 1,
-    );
-
-    final pixelDistance =
-        math.max(
-      1.0,
-      pitchPx * 0.75,
-    );
-
-    final minDistanceSquared =
-        pixelDistance *
-            pixelDistance;
+    final pitchMmX = workW / math.max(1, w - 1);
+    final pitchMmY = workH / math.max(1, h - 1);
+    final pixelDistance = math.max(1.0, pitchPx * 0.75);
+    final minDistanceSquared = pixelDistance * pixelDistance;
 
     final out = <TuftPoint>[];
-
     double? lastX;
     double? lastY;
 
     for (final point in points) {
-      if (lastX == null ||
-          lastY == null) {
+      if (lastX == null || lastY == null) {
         out.add(point);
-
-        lastX =
-            point.x / pitchMmX;
-
-        lastY =
-            (workH - point.y) /
-                pitchMmY;
-
+        lastX = point.x / pitchMmX;
+        lastY = (workH - point.y) / pitchMmY;
         continue;
       }
 
-      final px =
-          point.x / pitchMmX;
+      final px = point.x / pitchMmX;
+      final py = (workH - point.y) / pitchMmY;
+      final dx = px - lastX;
+      final dy = py - lastY;
+      final distanceSquared = dx * dx + dy * dy;
 
-      final py =
-          (workH - point.y) /
-              pitchMmY;
-
-      final dx =
-          px - lastX;
-
-      final dy =
-          py - lastY;
-
-      final distanceSquared =
-          dx * dx +
-              dy * dy;
-
-      if (distanceSquared >=
-          minDistanceSquared) {
+      if (distanceSquared >= minDistanceSquared) {
         out.add(point);
-
         lastX = px;
         lastY = py;
       }
@@ -1185,39 +706,23 @@ class PathExtractor {
     List<TuftPoint> points,
     int maxPoints,
   ) {
-    if (maxPoints <= 0 ||
-        points.length <= maxPoints) {
+    if (maxPoints <= 0 || points.length <= maxPoints) {
       return points;
     }
 
     final result = <TuftPoint>[];
+    final step = points.length / maxPoints;
 
-    final step =
-        points.length /
-            maxPoints;
+    for (var i = 0; i < maxPoints; i++) {
+      final index = (i * step)
+          .floor()
+          .clamp(0, points.length - 1);
 
-    for (var i = 0;
-        i < maxPoints;
-        i++) {
-      final index =
-          (i * step)
-              .floor()
-              .clamp(
-                0,
-                points.length - 1,
-              );
-
-      result.add(
-        points[index],
-      );
+      result.add(points[index]);
     }
 
     return result;
   }
-
-  // ---------------------------------------------------------------------------
-  // Coordinate conversion
-  // ---------------------------------------------------------------------------
 
   static TuftPoint _pxToMm(
     double px,
@@ -1228,25 +733,10 @@ class PathExtractor {
     double workH,
   ) {
     return TuftPoint(
-      x: px /
-          math.max(
-            1,
-            w - 1,
-          ) *
-          workW,
-      y: (1.0 -
-              py /
-                  math.max(
-                    1,
-                    h - 1,
-                  )) *
-          workH,
+      x: px / math.max(1, w - 1) * workW,
+      y: (1.0 - py / math.max(1, h - 1)) * workH,
     );
   }
-
-  // ---------------------------------------------------------------------------
-  // G-code
-  // ---------------------------------------------------------------------------
 
   static String toGCode(
     List<TuftPoint> points, {
@@ -1256,16 +746,10 @@ class PathExtractor {
   }) {
     final b = StringBuffer();
 
-    b.writeln(
-      '; ROVEX path — ${points.length} pts',
-    );
-
+    b.writeln('; ROVEX path — ${points.length} pts');
     b.writeln('G21');
     b.writeln('G90');
-
-    b.writeln(
-      'G0 Z${safeZ.toStringAsFixed(2)}',
-    );
+    b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
 
     if (points.isEmpty) {
       b.writeln('M2');
@@ -1278,25 +762,19 @@ class PathExtractor {
     for (final point in points) {
       final colorChanged =
           point.colorOrder != null &&
-              point.colorOrder !=
-                  lastColorOrder;
+          point.colorOrder != lastColorOrder;
 
       if (colorChanged) {
         if (lastColorOrder != null) {
           if (embroidery) {
-            b.writeln(
-              'M9 ; needle up',
-            );
+            b.writeln('M9 ; needle up');
           }
 
-          b.writeln(
-            'G0 Z${safeZ.toStringAsFixed(2)}',
-          );
+          b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
 
-          final hex =
-              point.colorValue != null
-                  ? '#${(point.colorValue! & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}'
-                  : '?';
+          final hex = point.colorValue != null
+              ? '#${(point.colorValue! & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}'
+              : '?';
 
           b.writeln(
             'M0 ; THREAD CHANGE -> '
@@ -1310,13 +788,10 @@ class PathExtractor {
         );
 
         if (embroidery) {
-          b.writeln(
-            'M8 ; needle engage',
-          );
+          b.writeln('M8 ; needle engage');
         }
 
-        lastColorOrder =
-            point.colorOrder;
+        lastColorOrder = point.colorOrder;
       } else if (previousPoint == null) {
         b.writeln(
           'G0 X${point.x.toStringAsFixed(2)} '
@@ -1324,9 +799,7 @@ class PathExtractor {
         );
 
         if (embroidery) {
-          b.writeln(
-            'M8 ; needle engage',
-          );
+          b.writeln('M8 ; needle engage');
         }
       }
 
@@ -1340,24 +813,14 @@ class PathExtractor {
     }
 
     if (embroidery) {
-      b.writeln(
-        'M9 ; needle up',
-      );
-
-      b.writeln(
-        'G0 Z${safeZ.toStringAsFixed(2)}',
-      );
+      b.writeln('M9 ; needle up');
+      b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
     }
 
     b.writeln('M2');
-
     return b.toString();
   }
 }
-
-// -----------------------------------------------------------------------------
-// Global function called by MachineService isolates
-// -----------------------------------------------------------------------------
 
 ExtractResult extractPathFromImageBytes(
   Uint8List bytes, {
@@ -1365,9 +828,6 @@ ExtractResult extractPathFromImageBytes(
 }) {
   return PathExtractor.extractMultiColor(
     bytes,
-    pitchMm: pitch.clamp(
-      1.0,
-      5.0,
-    ),
+    pitchMm: pitch.clamp(1.0, 5.0),
   );
 }

@@ -179,6 +179,7 @@ class _PathPreviewState extends State<PathPreview>
           CustomPaint(
             painter: _PathPainter(
               points: pts,
+              colorGroups: colorGroups,
               headX: s.x,
               headY: s.y,
               progressIndex: s.pathIndex,
@@ -410,6 +411,7 @@ class _ColorLegend extends StatelessWidget {
 
 class _PathPainter extends CustomPainter {
   final List<TuftPoint> points;
+  final List<ColorGroup> colorGroups;
   final double headX;
   final double headY;
   final int progressIndex;
@@ -418,6 +420,7 @@ class _PathPainter extends CustomPainter {
 
   const _PathPainter({
     required this.points,
+    required this.colorGroups,
     required this.headX,
     required this.headY,
     required this.progressIndex,
@@ -448,6 +451,7 @@ class _PathPainter extends CustomPainter {
       return Offset(nx, ny);
     }
 
+    _drawUnexecutedPath(canvas, map, progressIndex);
     _drawStitches(canvas, map, progressIndex);
     _drawGun(canvas, map);
   }
@@ -482,6 +486,43 @@ class _PathPainter extends CustomPainter {
     return [minX, maxX, minY, maxY];
   }
 
+  Color _colorForPoint(TuftPoint point) {
+    final order = point.colorOrder;
+
+    if (order != null) {
+      for (final group in colorGroups) {
+        if (group.order == order) {
+          return Color(group.colorValue);
+        }
+      }
+    }
+
+    if (point.colorValue != null) {
+      return Color(point.colorValue!);
+    }
+
+    return HmiColors.accent;
+  }
+
+  void _drawUnexecutedPath(
+    Canvas canvas,
+    Offset Function(double, double) map,
+    int progressIndex,
+  ) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    final start = progressIndex.clamp(0, points.length);
+
+    for (int i = start; i < points.length; i++) {
+      final point = points[i];
+      paint.color = _colorForPoint(point).withValues(alpha: 0.24);
+      canvas.drawCircle(
+        map(point.x, point.y),
+        2.4,
+        paint,
+      );
+    }
+  }
+
   void _drawStitches(
     Canvas canvas,
     Offset Function(double, double) map,
@@ -492,11 +533,13 @@ class _PathPainter extends CustomPainter {
 
     for (int i = 0; i < visibleCount; i++) {
       final point = points[i];
-      paint.color = point.colorValue == null
-          ? HmiColors.accent
-          : Color(point.colorValue!);
+      paint.color = _colorForPoint(point);
 
-      canvas.drawCircle(map(point.x, point.y), 3.0, paint);
+      canvas.drawCircle(
+        map(point.x, point.y),
+        3.0,
+        paint,
+      );
     }
   }
 
