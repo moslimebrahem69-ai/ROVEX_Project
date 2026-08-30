@@ -254,33 +254,33 @@ class _PathPainter extends CustomPainter {
       return Offset(nx, ny);
     }
 
-    // ===============================================================
-    // DRAW CARPET TUFTS (STITCHES) - NO ZIGZAG / NO CONNECTING LINES
-    // ===============================================================
+        // ===============================================================
+       // DRAW STITCHES ONLY AS THE MACHINE REACHES THEM
+       // ===============================================================
 
     final tuftPaint = Paint()..style = PaintingStyle.fill;
 
-    for (int i = 0; i < points.length; i++) {
-      final ptOffset = map(
-        points[i].x,
-        points[i].y,
-      );
+    final visibleCount = progressIndex.clamp(0, points.length);
 
-      final isDone = i < progressIndex;
+    for (int i = 0; i < visibleCount; i++) {
+      final point = points[i];
 
-      final Color tuftColor = points[i].colorValue != null
-          ? Color(points[i].colorValue!)
-          : (isDone
-              ? HmiColors.modeActive
-              : HmiColors.accent);
+     final ptOffset = map(
+     point.x,
+      point.y,
+     );
 
-      tuftPaint.color = tuftColor.withValues(
-        alpha: isDone ? 1.0 : 0.75,
-      );
+     final Color tuftColor = Color(point.colorValue!);
 
-      // رسم غرزة/عقدة سجاد نقطية مستقلة بدون توصيل خطوط
-      canvas.drawCircle(ptOffset, isDone ? 3.0 : 2.2, tuftPaint);
-    }
+  tuftPaint.color = tuftColor;
+
+  canvas.drawCircle(
+    ptOffset,
+    3.0,
+    tuftPaint,
+  );
+}
+  
 
     // ===============================================================
     // MACHINE HEAD / NEEDLE
@@ -303,7 +303,7 @@ class _PathPainter extends CustomPainter {
       head,
       13,
       Paint()
-        ..color = HmiColors.warn
+        ..color =HmiColors.warn
         ..style = PaintingStyle.stroke
         ..strokeWidth = 2.5,
     );

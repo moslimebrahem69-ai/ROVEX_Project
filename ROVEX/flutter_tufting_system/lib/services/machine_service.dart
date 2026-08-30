@@ -504,7 +504,7 @@ class MachineService extends ChangeNotifier {
   List<TuftPoint> _localPath = [];
   int _localIndex = 0;
   double _segT = 0;
-  double _segDur = 0.01;
+  double _segDur = 0.08;
   double _fromX = 0, _fromY = 0, _toX = 0, _toY = 0;
   bool _haveSeg = false;
 
