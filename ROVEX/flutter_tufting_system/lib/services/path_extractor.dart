@@ -1,102 +1,59 @@
 import 'dart:math' as math;
-
 import 'dart:typed_data';
 
 import 'package:image/image.dart' as img;
 
 import '../models/design.dart';
 
-/// Bitmap -> multi-color stitch path.
-
+/// Bitmap to multi-color tufting stitch paths.
 ///
-
 /// Pipeline:
-
-///  1. Keep all visible pixels so the complete image can be processed.
-
-///  2. Detect grayscale artwork and prevent anti-aliasing from creating fake colors.
-
-///     Color images are quantized into a small thread-color palette.
-
-///  3. For each color, find its connected regions and trace their
-
-///     boundary by *walking the edge of the shape* (Moore-neighbor
-
-///     contour tracing) instead of scanning fixed horizontal rows.
-
-///     Filled regions get concentric contour-following rings instead
-
-///     of a raster zig-zag fill.
-
-///  4. Every contour is smoothed (Chaikin corner-cutting) so curved
-
-///     parts of the artwork come out as curves, not staircases of
-
-///     straight segments.
-
-///  5. Colors are emitted one completely after another: every point of
-
-///     color #1 comes before any point of color #2, etc. Each point
-
-///     carries its color + 1-based color order so the HMI can show
-
-///     "color 2 / 5" and pause for a thread change between groups.
-
+/// 1. Decode and normalize the source image.
+/// 2. Detect the image background from the outer border.
+/// 3. Build a foreground-only color palette.
+/// 4. Create an independent mask for every detected thread color.
+/// 5. Fill each color region using scanlines while preserving the source shape.
+/// 6. Space stitches according to the requested physical pitch.
+/// 7. Emit colors sequentially so the HMI can handle thread changes.
 class PathExtractor {
-
   static const int _maxSide = 420;
-
   static const int _maxColors = 8;
 
-  static const int _colorMergeDist = 46;
   static const int _alphaThreshold = 10;
   static const int _grayscaleTolerance = 12;
+  static const int _colorMergeDist = 46;
 
   static List<TuftPoint> extractFromBytes(
-
     Uint8List bytes, {
-
     double workWidthMm = 600,
-
     double workHeightMm = 400,
-
-    double pitchMm = 10,
-
-    int maxPoints = 900,
-
+    double pitchMm = 3,
+    int maxPoints = 0,
   }) {
-
     return extractMultiColor(
-
       bytes,
-
       workWidthMm: workWidthMm,
-
       workHeightMm: workHeightMm,
-
       pitchMm: pitchMm,
-
       maxPoints: maxPoints,
-
     ).points;
-
   }
-
-  /// Full multi-color extraction. Returns both the flattened, ordered
-
-  /// point list (grouped color-by-color) and a summary of each color
-
-  /// group for UI / thread-change purposes.
 
   static ExtractResult extractMultiColor(
     Uint8List bytes, {
     double workWidthMm = 600,
     double workHeightMm = 400,
-    double pitchMm = 10,
-    int maxPoints = 900,
+    double pitchMm = 3,
+    int maxPoints = 0,
   }) {
     final decoded = img.decodeImage(bytes);
-    if (decoded == null) return const ExtractResult(points: [], colors: []);
+
+    if (decoded == null) {
+      return const ExtractResult(
+        points: [],
+        colors: [],
+      );
+    }
 
     img.Image src = decoded;
 
@@ -113,17 +70,21 @@ class PathExtractor {
     final h = src.height;
 
     if (w < 2 || h < 2) {
-      return const ExtractResult(points: [], colors: []);
+      return const ExtractResult(
+        points: [],
+        colors: [],
+      );
     }
 
-    // Keep every visible pixel so the complete image can be converted.
     final visible = Uint8List(w * h);
+
     var visibleCount = 0;
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        final p = src.getPixel(x, y);
-        if (p.a.toInt() > _alphaThreshold) {
+        final pixel = src.getPixel(x, y);
+
+        if (pixel.a.toInt() > _alphaThreshold) {
           visible[y * w + x] = 1;
           visibleCount++;
         }
@@ -131,207 +92,488 @@ class PathExtractor {
     }
 
     if (visibleCount == 0) {
-      return const ExtractResult(points: [], colors: []);
+      return const ExtractResult(
+        points: [],
+        colors: [],
+      );
     }
 
-    final grayscale = _isMostlyGrayscale(src, visible, w, h);
+    final background = _estimateBackgroundColor(
+      src,
+      visible,
+      w,
+      h,
+    );
 
-    // Treat black/white artwork as exactly two colors.
-    // Anti-aliased gray pixels are assigned to black or white.
-    final palette = grayscale
-        ? _buildGrayscalePalette(src, visible, w, h)
-        : _buildPalette(src, visible, w, h, _maxColors);
+    final foreground = Uint8List(w * h);
 
-    if (palette.isEmpty) {
-      return const ExtractResult(points: [], colors: []);
-    }
-
-    final labelOf = Int16List(w * h)..fillRange(0, w * h, -1);
-    final areaByColor = List<int>.filled(palette.length, 0);
-
-    final grayscaleThreshold =
-        grayscale ? _otsuThreshold(src, visible, w, h) : -1;
+    var foregroundCount = 0;
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        final idx = y * w + x;
-        if (visible[idx] == 0) continue;
+        final index = y * w + x;
 
-        final p = src.getPixel(x, y);
-        final rgb = (p.r.toInt() << 16) |
-            (p.g.toInt() << 8) |
-            p.b.toInt();
+        if (visible[index] == 0) {
+          continue;
+        }
+
+        final pixel = src.getPixel(x, y);
+
+        if (_isBackgroundPixel(pixel, background)) {
+          continue;
+        }
+
+        foreground[index] = 1;
+        foregroundCount++;
+      }
+    }
+
+    if (foregroundCount == 0) {
+      return const ExtractResult(
+        points: [],
+        colors: [],
+      );
+    }
+
+    final grayscale = _isMostlyGrayscale(
+      src,
+      foreground,
+      w,
+      h,
+    );
+
+    final palette = grayscale
+        ? _buildGrayscaleForegroundPalette(
+            src,
+            foreground,
+            w,
+            h,
+          )
+        : _buildPalette(
+            src,
+            foreground,
+            w,
+            h,
+            _maxColors,
+          );
+
+    if (palette.isEmpty) {
+      return const ExtractResult(
+        points: [],
+        colors: [],
+      );
+    }
+
+    final labels = Int16List(w * h)..fillRange(0, w * h, -1);
+
+    final areaByColor = List<int>.filled(
+      palette.length,
+      0,
+    );
+
+    final grayscaleThreshold = grayscale && palette.length > 1
+        ? _otsuThreshold(
+            src,
+            foreground,
+            w,
+            h,
+          )
+        : -1;
+
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        final index = y * w + x;
+
+        if (foreground[index] == 0) {
+          continue;
+        }
+
+        final pixel = src.getPixel(x, y);
+
+        final rgb = (pixel.r.toInt() << 16) |
+            (pixel.g.toInt() << 8) |
+            pixel.b.toInt();
 
         var best = 0;
 
         if (grayscale && palette.length == 2) {
-          best = _luma(p) <= grayscaleThreshold ? 0 : 1;
+          best = _luma(pixel) <= grayscaleThreshold ? 0 : 1;
         } else {
-          var bestD = 1 << 30;
+          var bestDistance = 1 << 30;
 
-          for (var ci = 0; ci < palette.length; ci++) {
-            final d = _rgbDist(rgb, palette[ci]);
-            if (d < bestD) {
-              bestD = d;
-              best = ci;
+          for (var colorIndex = 0;
+              colorIndex < palette.length;
+              colorIndex++) {
+            final distance = _rgbDist(
+              rgb,
+              palette[colorIndex],
+            );
+
+            if (distance < bestDistance) {
+              bestDistance = distance;
+              best = colorIndex;
             }
           }
         }
 
-        labelOf[idx] = best;
+        labels[index] = best;
         areaByColor[best]++;
       }
     }
 
-    // Process large color regions first.
-    final colorOrderIdx = List<int>.generate(palette.length, (i) => i)
-      ..sort((a, b) => areaByColor[b].compareTo(areaByColor[a]));
+    final colorOrder = List<int>.generate(
+      palette.length,
+      (index) => index,
+    )..sort(
+        (a, b) => areaByColor[b].compareTo(
+          areaByColor[a],
+        ),
+      );
 
     final pxPerMmX = w / workWidthMm;
     final pxPerMmY = h / workHeightMm;
-    final pitchPx =
-        math.max(1.0, pitchMm * (pxPerMmX + pxPerMmY) / 2).roundToDouble();
 
-    final totalVisible = visibleCount;
-    final groups = <ColorGroup>[];
-    final allPoints = <TuftPoint>[];
-    var order = 0;
+    final safePitchMm = pitchMm.clamp(1.0, 5.0);
 
-    for (final ci in colorOrderIdx) {
-      final area = areaByColor[ci];
+    final averagePxPerMm =
+        (pxPerMmX + pxPerMmY) / 2.0;
 
-      // Ignore only very small noise fragments.
-      if (area < math.max(6, (w * h * 0.0003).round())) continue;
+    final pitchPx = math.max(
+      1.0,
+      safePitchMm * averagePxPerMm,
+    );
 
-      order++;
+    
+   final groups = <ColorGroup>[];
+final allPoints = <TuftPoint>[];
 
-      final colorMask = Uint8List(w * h);
-      for (var i = 0; i < w * h; i++) {
-        if (labelOf[i] == ci) colorMask[i] = 1;
-      }
+var order = 0;
 
-      final share =
-          (maxPoints * (area / totalVisible)).round().clamp(24, maxPoints).toInt();
+for (final paletteIndex in colorOrder) {
+  final area = areaByColor[paletteIndex];
 
-      final regionPoints = _pathForColorMask(
-        colorMask,
-        w,
-        h,
-        workWidthMm,
-        workHeightMm,
-        pitchPx,
-        share,
-      );
-
-      if (regionPoints.isEmpty) {
-        order--;
-        continue;
-      }
-
-      final argb = 0xFF000000 | palette[ci];
-
-      for (final p in regionPoints) {
-        allPoints.add(
-          TuftPoint(
-            x: p.x,
-            y: p.y,
-            colorValue: argb,
-            colorOrder: order,
-          ),
-        );
-      }
-
-      groups.add(
-        ColorGroup(
-          colorValue: argb,
-          order: order,
-          pointCount: regionPoints.length,
-        ),
-      );
-    }
-
-    return ExtractResult(points: allPoints, colors: groups);
+  if (area <= 0) {
+    continue;
   }
 
-  // Palette building
+  final colorMask = Uint8List(w * h);
 
-  // ---------------------------------------------------------------------
+  for (var index = 0; index < w * h; index++) {
+    if (labels[index] == paletteIndex) {
+      colorMask[index] = 1;
+    }
+  }
+
+  final regionPoints = _pathForColorMask(
+    colorMask,
+    w,
+    h,
+    workWidthMm,
+    workHeightMm,
+    pitchPx,
+  );
+
+  if (regionPoints.isEmpty) {
+    continue;
+  }
+
+  order++;
+
+  final argb = 0xFF000000 | palette[paletteIndex];
+
+  for (final point in regionPoints) {
+    allPoints.add(
+      TuftPoint(
+        x: point.x,
+        y: point.y,
+        colorValue: argb,
+        colorOrder: order,
+      ),
+    );
+  }
+
+  groups.add(
+    ColorGroup(
+      colorValue: argb,
+      order: order,
+      pointCount: regionPoints.length,
+    ),
+  );
+}
+
+    final resultPoints = maxPoints > 0 && allPoints.length > maxPoints
+        ? _limitPoints(
+            allPoints,
+            maxPoints,
+          )
+        : allPoints;
+
+    return ExtractResult(
+      points: resultPoints,
+      colors: groups,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Background detection
+  // ---------------------------------------------------------------------------
+
+  static int _estimateBackgroundColor(
+    img.Image src,
+    Uint8List visible,
+    int w,
+    int h,
+  ) {
+    final histogram = <int, int>{};
+
+    void addPixel(int x, int y) {
+      final index = y * w + x;
+
+      if (visible[index] == 0) {
+        return;
+      }
+
+      final pixel = src.getPixel(x, y);
+
+      final normalized = _normalizeRgb(
+        pixel,
+        32,
+      );
+
+      histogram[normalized] =
+          (histogram[normalized] ?? 0) + 1;
+    }
+
+    for (var x = 0; x < w; x++) {
+      addPixel(x, 0);
+      addPixel(x, h - 1);
+    }
+
+    for (var y = 1; y < h - 1; y++) {
+      addPixel(0, y);
+      addPixel(w - 1, y);
+    }
+
+    if (histogram.isEmpty) {
+      return 0xFFFFFF;
+    }
+
+    var bestColor = 0xFFFFFF;
+    var bestCount = -1;
+
+    for (final entry in histogram.entries) {
+      if (entry.value > bestCount) {
+        bestCount = entry.value;
+        bestColor = entry.key;
+      }
+    }
+
+    return bestColor;
+  }
+
+  static bool _isBackgroundPixel(
+    img.Pixel pixel,
+    int background,
+  ) {
+    final rgb = (pixel.r.toInt() << 16) |
+        (pixel.g.toInt() << 8) |
+        pixel.b.toInt();
+
+    final distance = _rgbDist(
+      rgb,
+      background,
+    );
+
+    final r = pixel.r.toInt();
+    final g = pixel.g.toInt();
+    final b = pixel.b.toInt();
+
+    final backgroundR =
+        (background >> 16) & 0xFF;
+    final backgroundG =
+        (background >> 8) & 0xFF;
+    final backgroundB =
+        background & 0xFF;
+
+    final maxDifference = math.max(
+      (r - backgroundR).abs(),
+      math.max(
+        (g - backgroundG).abs(),
+        (b - backgroundB).abs(),
+      ),
+    );
+
+    return distance <= 45 * 45 ||
+        maxDifference <= 18;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Palette
+  // ---------------------------------------------------------------------------
 
   static List<int> _buildPalette(
     img.Image src,
-    Uint8List visible,
+    Uint8List foreground,
     int w,
     int h,
     int maxColors,
   ) {
     const levels = 6;
     const step = 256 / levels;
-    final hist = <int, int>{};
+
+    final histogram = <int, int>{};
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (visible[y * w + x] == 0) continue;
+        if (foreground[y * w + x] == 0) {
+          continue;
+        }
 
-        final key = _normalizeRgb(src.getPixel(x, y), step);
-        hist[key] = (hist[key] ?? 0) + 1;
+        final key = _normalizeRgb(
+          src.getPixel(x, y),
+          step,
+        );
+
+        histogram[key] =
+            (histogram[key] ?? 0) + 1;
       }
     }
 
-    final entries = hist.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final entries = histogram.entries.toList()
+      ..sort(
+        (a, b) => b.value.compareTo(a.value),
+      );
 
     final palette = <int>[];
 
-    for (final e in entries) {
-      if (palette.length >= maxColors) break;
+    for (final entry in entries) {
+      if (palette.length >= maxColors) {
+        break;
+      }
 
       var tooClose = false;
-      for (final p in palette) {
-        if (_rgbDist(e.key, p) < _colorMergeDist * _colorMergeDist) {
+
+      for (final color in palette) {
+        if (_rgbDist(
+              entry.key,
+              color,
+            ) <
+            _colorMergeDist * _colorMergeDist) {
           tooClose = true;
           break;
         }
       }
 
-      if (!tooClose) palette.add(e.key);
+      if (!tooClose) {
+        palette.add(entry.key);
+      }
     }
 
     return palette;
   }
 
-  static List<int> _buildGrayscalePalette(
+  static List<int> _buildGrayscaleForegroundPalette(
     img.Image src,
-    Uint8List visible,
+    Uint8List foreground,
     int w,
     int h,
   ) {
-    var hasDark = false;
-    var hasLight = false;
+    var darkest = 255;
+    var lightest = 0;
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (visible[y * w + x] == 0) continue;
-
-        final luma = _luma(src.getPixel(x, y));
-
-        if (luma < 245) {
-          hasDark = true;
-        } else {
-          hasLight = true;
+        if (foreground[y * w + x] == 0) {
+          continue;
         }
+
+        final luma = _luma(
+          src.getPixel(x, y),
+        );
+
+        darkest = math.min(
+          darkest,
+          luma,
+        );
+
+        lightest = math.max(
+          lightest,
+          luma,
+        );
       }
     }
 
-    if (hasDark && hasLight) return [0x000000, 0xFFFFFF];
-    if (hasDark) return [0x000000];
-    if (hasLight) return [0xFFFFFF];
+    if (darkest == 255) {
+      return [];
+    }
 
-    return [];
+    if ((lightest - darkest) < 20) {
+      return [
+        _grayToRgb(darkest),
+      ];
+    }
+
+    final histogram = List<int>.filled(
+      256,
+      0,
+    );
+
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        if (foreground[y * w + x] == 0) {
+          continue;
+        }
+
+        histogram[
+            _luma(src.getPixel(x, y))]++;
+      }
+    }
+
+    var first = -1;
+    var last = -1;
+
+    for (var i = 0; i < histogram.length; i++) {
+      if (histogram[i] > 0) {
+        if (first == -1) {
+          first = i;
+        }
+
+        last = i;
+      }
+    }
+
+    if (first == -1 || last == -1) {
+      return [];
+    }
+
+    var lowCount = 0;
+    var highCount = 0;
+
+    for (var i = first; i <= last; i++) {
+      if (i <= (first + last) ~/ 2) {
+        lowCount += histogram[i];
+      } else {
+        highCount += histogram[i];
+      }
+    }
+
+    if (lowCount == 0 || highCount == 0) {
+      return [
+        _grayToRgb(
+          (first + last) ~/ 2,
+        ),
+      ];
+    }
+
+    return [
+      0x000000,
+      0xFFFFFF,
+    ];
   }
 
   static bool _isMostlyGrayscale(
     img.Image src,
-    Uint8List visible,
+    Uint8List foreground,
     int w,
     int h,
   ) {
@@ -340,45 +582,149 @@ class PathExtractor {
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (visible[y * w + x] == 0) continue;
+        if (foreground[y * w + x] == 0) {
+          continue;
+        }
 
-        final p = src.getPixel(x, y);
+        final pixel = src.getPixel(x, y);
+
         final maxChannel = math.max(
-          p.r.toInt(),
-          math.max(p.g.toInt(), p.b.toInt()),
+          pixel.r.toInt(),
+          math.max(
+            pixel.g.toInt(),
+            pixel.b.toInt(),
+          ),
         );
+
         final minChannel = math.min(
-          p.r.toInt(),
-          math.min(p.g.toInt(), p.b.toInt()),
+          pixel.r.toInt(),
+          math.min(
+            pixel.g.toInt(),
+            pixel.b.toInt(),
+          ),
         );
 
         checked++;
 
-        if (maxChannel - minChannel <= _grayscaleTolerance) {
+        if (maxChannel - minChannel <=
+            _grayscaleTolerance) {
           grayscalePixels++;
         }
 
         if (checked >= 20000) {
-          return grayscalePixels / checked >= 0.95;
+          break;
         }
+      }
+
+      if (checked >= 20000) {
+        break;
       }
     }
 
-    return checked > 0 && grayscalePixels / checked >= 0.95;
+    return checked > 0 &&
+        grayscalePixels / checked >= 0.95;
   }
+
+  static int _grayToRgb(int value) {
+    final v = value.clamp(0, 255);
+    return (v << 16) | (v << 8) | v;
+  }
+
+  static int _normalizeRgb(
+    img.Pixel pixel,
+    double step,
+  ) {
+    final r = pixel.r.toInt();
+    final g = pixel.g.toInt();
+    final b = pixel.b.toInt();
+
+    final maxChannel = math.max(
+      r,
+      math.max(g, b),
+    );
+
+    final minChannel = math.min(
+      r,
+      math.min(g, b),
+    );
+
+    if (maxChannel - minChannel <=
+        _grayscaleTolerance) {
+      final luma = _luma(pixel);
+
+      if (luma >= 245) {
+        return 0xFFFFFF;
+      }
+
+      if (luma <= 10) {
+        return 0x000000;
+      }
+    }
+
+    final qr = ((r / step).floor() * step +
+            step / 2)
+        .clamp(0, 255)
+        .toInt();
+
+    final qg = ((g / step).floor() * step +
+            step / 2)
+        .clamp(0, 255)
+        .toInt();
+
+    final qb = ((b / step).floor() * step +
+            step / 2)
+        .clamp(0, 255)
+        .toInt();
+
+    return (qr << 16) |
+        (qg << 8) |
+        qb;
+  }
+
+  static int _rgbDist(
+    int a,
+    int b,
+  ) {
+    final ar = (a >> 16) & 0xFF;
+    final ag = (a >> 8) & 0xFF;
+    final ab = a & 0xFF;
+
+    final br = (b >> 16) & 0xFF;
+    final bg = (b >> 8) & 0xFF;
+    final bb = b & 0xFF;
+
+    final dr = ar - br;
+    final dg = ag - bg;
+    final db = ab - bb;
+
+    return dr * dr +
+        dg * dg +
+        db * db;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Grayscale threshold
+  // ---------------------------------------------------------------------------
 
   static int _otsuThreshold(
     img.Image src,
-    Uint8List visible,
+    Uint8List foreground,
     int w,
     int h,
   ) {
-    final histogram = List<int>.filled(256, 0);
+    final histogram = List<int>.filled(
+      256,
+      0,
+    );
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
-        if (visible[y * w + x] == 0) continue;
-        histogram[_luma(src.getPixel(x, y))]++;
+        if (foreground[y * w + x] == 0) {
+          continue;
+        }
+
+        histogram[
+            _luma(src.getPixel(x, y))]++;
       }
     }
 
@@ -387,696 +733,379 @@ class PathExtractor {
 
     for (var i = 0; i < 256; i++) {
       total += histogram[i];
-      sumTotal += i * histogram[i];
+      sumTotal +=
+          i * histogram[i];
     }
 
-    if (total == 0) return 127;
+    if (total == 0) {
+      return 127;
+    }
 
     var weightBackground = 0;
     var sumBackground = 0.0;
+
     var bestThreshold = 127;
     var bestVariance = -1.0;
 
-    for (var threshold = 0; threshold < 256; threshold++) {
-      weightBackground += histogram[threshold];
-      if (weightBackground == 0) continue;
+    for (var threshold = 0;
+        threshold < 256;
+        threshold++) {
+      weightBackground +=
+          histogram[threshold];
 
-      final weightForeground = total - weightBackground;
-      if (weightForeground == 0) break;
+      if (weightBackground == 0) {
+        continue;
+      }
 
-      sumBackground += threshold * histogram[threshold];
+      final weightForeground =
+          total - weightBackground;
 
-      final meanBackground = sumBackground / weightBackground;
+      if (weightForeground == 0) {
+        break;
+      }
+
+      sumBackground +=
+          threshold *
+              histogram[threshold];
+
+      final meanBackground =
+          sumBackground /
+              weightBackground;
+
       final meanForeground =
-          (sumTotal - sumBackground) / weightForeground;
+          (sumTotal -
+                  sumBackground) /
+              weightForeground;
 
       final variance =
           weightBackground *
-          weightForeground *
-          math.pow(meanBackground - meanForeground, 2);
+              weightForeground *
+              math.pow(
+                meanBackground -
+                    meanForeground,
+                2,
+              );
 
       if (variance > bestVariance) {
-        bestVariance = variance.toDouble();
-        bestThreshold = threshold;
+        bestVariance =
+            variance.toDouble();
+
+        bestThreshold =
+            threshold;
       }
     }
 
     return bestThreshold;
   }
 
-  static int _luma(img.Pixel p) {
-    return (0.299 * p.r + 0.587 * p.g + 0.114 * p.b)
+  static int _luma(img.Pixel pixel) {
+    return (0.299 * pixel.r +
+            0.587 * pixel.g +
+            0.114 * pixel.b)
         .round()
         .clamp(0, 255);
   }
 
-  static int _normalizeRgb(img.Pixel p, double step) {
-    final r = p.r.toInt();
-    final g = p.g.toInt();
-    final b = p.b.toInt();
-
-    final maxChannel = math.max(r, math.max(g, b));
-    final minChannel = math.min(r, math.min(g, b));
-
-    if (maxChannel - minChannel <= _grayscaleTolerance) {
-      final luma = _luma(p);
-
-      if (luma >= 245) return 0xFFFFFF;
-      if (luma <= 10) return 0x000000;
-    }
-
-    final qr = ((r / step).floor() * step + step / 2)
-        .clamp(0, 255)
-        .toInt();
-    final qg = ((g / step).floor() * step + step / 2)
-        .clamp(0, 255)
-        .toInt();
-    final qb = ((b / step).floor() * step + step / 2)
-        .clamp(0, 255)
-        .toInt();
-
-    return (qr << 16) | (qg << 8) | qb;
-  }
-
-  static int _rgbDist(int a, int b) {
-
-    final ar = (a >> 16) & 0xFF, ag = (a >> 8) & 0xFF, ab = a & 0xFF;
-
-    final br = (b >> 16) & 0xFF, bg = (b >> 8) & 0xFF, bb = b & 0xFF;
-
-    final dr = ar - br, dg = ag - bg, db = ab - bb;
-
-    return dr * dr + dg * dg + db * db;
-
-  }
-
-  // ---------------------------------------------------------------------
-
-  // Contour extraction for a single color's mask
-
-  // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Shape extraction
+  // ---------------------------------------------------------------------------
 
   static List<TuftPoint> _pathForColorMask(
-
     Uint8List mask,
-
     int w,
-
     int h,
-
     double workW,
-
     double workH,
-
     double pitchPx,
-
-    int pointBudget,
-
   ) {
+    final out = <TuftPoint>[];
 
-    final regions = _connectedComponents(mask, w, h);
-
-    if (regions.isEmpty) return [];
-
-    // Visit regions nearest-neighbor (by centroid) so the color is finished
-
-    // as one continuous sweep instead of jumping randomly across the art.
-
-    regions.sort((a, b) => b.pixelCount.compareTo(a.pixelCount));
-
-    final visited = List<bool>.filled(regions.length, false);
-
-    final orderedRegions = <_Region>[];
-
-    var cursor = 0.0, cursorY = 0.0;
-
-    for (var n = 0; n < regions.length; n++) {
-
-      var best = -1;
-
-      var bestD = double.infinity;
-
-      for (var i = 0; i < regions.length; i++) {
-
-        if (visited[i]) continue;
-
-        final dx = regions[i].cx - cursor;
-
-        final dy = regions[i].cy - cursorY;
-
-        final d = dx * dx + dy * dy;
-
-        if (d < bestD) {
-
-          bestD = d;
-
-          best = i;
-
-        }
-
-      }
-
-      if (best == -1) break;
-
-      visited[best] = true;
-
-      orderedRegions.add(regions[best]);
-
-      cursor = regions[best].cx;
-
-      cursorY = regions[best].cy;
-
+    if (!_containsForeground(mask)) {
+      return out;
     }
 
-    final totalPixels =
+    final rowStep = math.max(
+      1.0,
+      pitchPx,
+    );
 
-        regions.fold<int>(0, (sum, r) => sum + r.pixelCount);
+    final firstRow = 0.0;
+
+    var reverse = false;
+
+    for (
+      var y = firstRow;
+      y < h;
+      y += rowStep
+    ) {
+      final row = y.round().clamp(
+            0,
+            h - 1,
+          );
+
+      final runs = _findRuns(
+        mask,
+        w,
+        row,
+      );
+
+      if (runs.isEmpty) {
+        continue;
+      }
+
+      final orderedRuns =
+          reverse
+              ? runs.reversed.toList()
+              : runs;
+
+      for (final run in orderedRuns) {
+        final startX = run[0].toDouble();
+        final endX = run[1].toDouble();
+
+        final width =
+            endX - startX;
+
+        if (width <= 0) {
+          out.add(
+            _pxToMm(
+              startX,
+              y,
+              w,
+              h,
+              workW,
+              workH,
+            ),
+          );
+          continue;
+        }
+
+        final count = math.max(
+          1,
+          (width / pitchPx).round(),
+        );
+
+        for (var i = 0;
+            i <= count;
+            i++) {
+          final t = count == 0
+              ? 0.0
+              : i / count;
+
+          final x =
+              startX +
+                  width * t;
+
+          out.add(
+            _pxToMm(
+              x,
+              y,
+              w,
+              h,
+              workW,
+              workH,
+            ),
+          );
+        }
+      }
+
+      reverse = !reverse;
+    }
+
+    return _removeTooClosePoints(
+      out,
+      pitchPx,
+      w,
+      h,
+      workW,
+      workH,
+    );
+  }
+
+  static List<List<int>> _findRuns(
+    Uint8List mask,
+    int w,
+    int y,
+  ) {
+    final runs = <List<int>>[];
+
+    var x = 0;
+
+    while (x < w) {
+      while (
+          x < w &&
+          mask[y * w + x] == 0) {
+        x++;
+      }
+
+      if (x >= w) {
+        break;
+      }
+
+      final start = x;
+
+      while (
+          x + 1 < w &&
+          mask[y * w + x + 1] == 1) {
+        x++;
+      }
+
+      final end = x;
+
+      runs.add([
+        start,
+        end,
+      ]);
+
+      x++;
+    }
+
+    return runs;
+  }
+
+  static bool _containsForeground(
+    Uint8List mask,
+  ) {
+    for (final value in mask) {
+      if (value == 1) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  static List<TuftPoint> _removeTooClosePoints(
+    List<TuftPoint> points,
+    double pitchPx,
+    int w,
+    int h,
+    double workW,
+    double workH,
+  ) {
+    if (points.length < 2) {
+      return points;
+    }
+
+    final pitchMmX =
+        workW / math.max(1, w - 1);
+
+    final pitchMmY =
+        workH / math.max(1, h - 1);
+
+    final pixelDistance =
+        math.max(
+          1.0,
+          pitchPx * 0.75,
+        );
+
+    final minDistanceSquared =
+        pixelDistance *
+            pixelDistance;
 
     final out = <TuftPoint>[];
 
-    for (final region in orderedRegions) {
+    double? lastX;
+    double? lastY;
 
-      final regionBudget = math.max(
+    for (final point in points) {
+      if (lastX == null ||
+          lastY == null) {
+        out.add(point);
+        lastX =
+            point.x / pitchMmX;
+        lastY =
+            (workH - point.y) /
+                pitchMmY;
+        continue;
+      }
 
-        6,
+      final px =
+          point.x / pitchMmX;
 
-        (pointBudget * (region.pixelCount / totalPixels)).round(),
+      final py =
+          (workH - point.y) /
+              pitchMmY;
 
+      final dx =
+          px - lastX;
+
+      final dy =
+          py - lastY;
+
+      final distanceSquared =
+          dx * dx + dy * dy;
+
+      if (distanceSquared >=
+          minDistanceSquared) {
+        out.add(point);
+        lastX = px;
+        lastY = py;
+      }
+    }
+
+    return out;
+  }
+
+  static List<TuftPoint> _limitPoints(
+    List<TuftPoint> points,
+    int maxPoints,
+  ) {
+    if (maxPoints <= 0 ||
+        points.length <= maxPoints) {
+      return points;
+    }
+
+    final result = <TuftPoint>[];
+
+    final step =
+        points.length /
+            maxPoints;
+
+    for (var i = 0;
+        i < maxPoints;
+        i++) {
+      final index =
+          (i * step)
+              .floor()
+              .clamp(
+                0,
+                points.length - 1,
+              );
+
+      result.add(
+        points[index],
       );
-
-      final rings = <List<List<int>>>[];
-
-      var ringMask = _extractRegionMask(mask, w, h, region);
-
-      var safety = 0;
-
-      while (safety < 100) {
-
-        safety++;
-
-        final start = _topLeftForeground(ringMask, w, h);
-
-        if (start == null) break;
-
-        final boundary = _traceMoore(ringMask, w, h, start[0], start[1]);
-
-        if (boundary.length >= 3) rings.add(boundary);
-
-        // shrink the mask by ~1 pitch step for the next inner ring
-
-        final erodeSteps = math.max(1, pitchPx.round());
-
-        var eroded = ringMask;
-
-        for (var s = 0; s < erodeSteps; s++) {
-
-          eroded = _erode(eroded, w, h);
-
-        }
-
-        if (_isEmpty(eroded)) break;
-
-        ringMask = eroded;
-
-        // Thin outlines (fillRatio small) don't need concentric fill --
-
-        // one ring is already the whole shape.
-
-        if (region.fillRatio < 0.18) break;
-
-      }
-
-      if (rings.isEmpty) continue;
-
-      // Smooth + resample every ring, then chain them (outer -> inner)
-
-      // with short connective hops so travel stays continuous.
-
-      final ringBudget = math.max(4, regionBudget ~/ rings.length);
-
-      for (final ring in rings) {
-
-        final smooth = _chaikin(ring, iterations: 2);
-
-        final resampled = _resampleByCount(smooth, ringBudget);
-
-        for (final pt in resampled) {
-
-          out.add(_pxToMm(pt[0], pt[1], w, h, workW, workH));
-
-        }
-
-      }
-
     }
 
-    return out;
-
+    return result;
   }
 
-  // ---------------------------------------------------------------------
-
-  // Connected components (per color)
-
-  // ---------------------------------------------------------------------
-
-  static List<_Region> _connectedComponents(Uint8List mask, int w, int h) {
-
-    final labels = Int32List(w * h)..fillRange(0, w * h, -1);
-
-    final regions = <_Region>[];
-
-    final minPixels = math.max(6, (w * h * 0.0012).round());
-
-    final queue = <int>[];
-
-    for (var start = 0; start < w * h; start++) {
-
-      if (mask[start] == 0 || labels[start] != -1) continue;
-
-      final seedIndex = start;
-
-      queue.clear();
-
-      queue.add(start);
-
-      labels[start] = regions.length;
-
-      var minX = start % w, maxX = start % w, minY = start ~/ w, maxY = start ~/ w;
-
-      var sumX = 0.0, sumY = 0.0, count = 0;
-
-      var qi = 0;
-
-      while (qi < queue.length) {
-
-        final idx = queue[qi++];
-
-        final x = idx % w, y = idx ~/ w;
-
-        sumX += x;
-
-        sumY += y;
-
-        count++;
-
-        if (x < minX) minX = x;
-
-        if (x > maxX) maxX = x;
-
-        if (y < minY) minY = y;
-
-        if (y > maxY) maxY = y;
-
-        for (var dy = -1; dy <= 1; dy++) {
-          for (var dx = -1; dx <= 1; dx++) {
-            if (dx == 0 && dy == 0) continue;
-
-            final nx = x + dx;
-            final ny = y + dy;
-
-            if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-
-            final ni = ny * w + nx;
-            if (mask[ni] == 1 && labels[ni] == -1) {
-              labels[ni] = regions.length;
-              queue.add(ni);
-            }
-          }
-        }
-
-      if (count < minPixels) continue;
-
-      final boxW = (maxX - minX + 1);
-
-      final boxH = (maxY - minY + 1);
-
-      final fillRatio = count / math.max(1, boxW * boxH);
-
-      regions.add(_Region(
-
-        id: regions.length,
-
-        seedIndex: seedIndex,
-
-        pixelCount: count,
-
-        cx: sumX / count,
-
-        cy: sumY / count,
-
-        minX: minX,
-
-        minY: minY,
-
-        maxX: maxX,
-
-        maxY: maxY,
-
-        fillRatio: fillRatio,
-
-      ));
-
-    }
-    }
-
-    return regions;
-
-  }
-
-  /// Re-derives exactly this region's pixel footprint (and nothing from a
-
-  /// neighbouring same-color blob that might share the same bounding box)
-
-  /// via a single flood fill from the region's known seed pixel.
-
-  static Uint8List _extractRegionMask(Uint8List mask, int w, int h, _Region r) {
-
-    final out = Uint8List(w * h);
-
-    final visited = Uint8List(w * h);
-
-    final queue = <int>[r.seedIndex];
-
-    visited[r.seedIndex] = 1;
-
-    var qi = 0;
-
-    while (qi < queue.length) {
-
-      final idx = queue[qi++];
-
-      out[idx] = 1;
-
-      final x = idx % w, y = idx ~/ w;
-
-      for (var dy = -1; dy <= 1; dy++) {
-        for (var dx = -1; dx <= 1; dx++) {
-          if (dx == 0 && dy == 0) continue;
-
-          final nx = x + dx;
-          final ny = y + dy;
-
-          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
-
-          final ni = ny * w + nx;
-          if (mask[ni] == 1 && visited[ni] == 0) {
-            visited[ni] = 1;
-            queue.add(ni);
-          }
-        }
-      }
-    }
-
-    return out;
-
-  }
-
-  // ---------------------------------------------------------------------
-
-  // Moore-neighbor boundary tracing (walks the actual edge of the shape)
-
-  // ---------------------------------------------------------------------
-
-  static const List<List<int>> _nb = [
-
-    [0, -1], [1, -1], [1, 0], [1, 1], // N, NE, E, SE*
-
-    [0, 1], [-1, 1], [-1, 0], [-1, -1], // S, SW, W, NW*
-
-  ];
-
-  static bool _on(Uint8List mask, int w, int h, int x, int y) {
-
-    if (x < 0 || y < 0 || x >= w || y >= h) return false;
-
-    return mask[y * w + x] == 1;
-
-  }
-
-  static List<int>? _topLeftForeground(Uint8List mask, int w, int h) {
-
-    for (var y = 0; y < h; y++) {
-
-      for (var x = 0; x < w; x++) {
-
-        if (mask[y * w + x] == 1) return [x, y];
-
-      }
-
-    }
-
-    return null;
-
-  }
-
-  static List<List<int>> _traceMoore(Uint8List mask, int w, int h, int sx, int sy) {
-
-    final boundary = <List<int>>[[sx, sy]];
-
-    var cx = sx, cy = sy;
-
-    var bgx = sx - 1, bgy = sy; // background pixel that led us to start (west)*
-
-    var steps = 0;
-
-    const maxSteps = 6000;
-
-    while (steps < maxSteps) {
-
-      steps++;
-
-      var bgDir = -1;
-
-      for (var i = 0; i < 8; i++) {
-
-        if (cx + _nb[i][0] == bgx && cy + _nb[i][1] == bgy) {
-
-          bgDir = i;
-
-          break;
-
-        }
-
-      }
-
-      if (bgDir == -1) bgDir = 6; // fallback: west*
-
-      var nx = -1, ny = -1, foundIdx = -1;
-
-      for (var i = 1; i <= 8; i++) {
-
-        final d = (bgDir + i) % 8;
-
-        final tx = cx + _nb[d][0];
-
-        final ty = cy + _nb[d][1];
-
-        if (_on(mask, w, h, tx, ty)) {
-
-          nx = tx;
-
-          ny = ty;
-
-          foundIdx = d;
-
-          break;
-
-        }
-
-      }
-
-      if (foundIdx == -1) break; // isolated pixel, nothing more to trace*
-
-      final prevIdx = (foundIdx - 1 + 8) % 8;
-
-      bgx = cx + _nb[prevIdx][0];
-
-      bgy = cy + _nb[prevIdx][1];
-
-      cx = nx;
-
-      cy = ny;
-
-      if (cx == sx && cy == sy) break; // closed the loop*
-
-      boundary.add([cx, cy]);
-
-    }
-
-    return boundary;
-
-  }
-
-  static Uint8List _erode(Uint8List mask, int w, int h) {
-
-    final out = Uint8List(w * h);
-
-    for (var y = 0; y < h; y++) {
-
-      for (var x = 0; x < w; x++) {
-
-        if (mask[y * w + x] == 0) continue;
-
-        if (_on(mask, w, h, x - 1, y) &&
-
-            _on(mask, w, h, x + 1, y) &&
-
-            _on(mask, w, h, x, y - 1) &&
-
-            _on(mask, w, h, x, y + 1)) {
-
-          out[y * w + x] = 1;
-
-        }
-
-      }
-
-    }
-
-    return out;
-
-  }
-
-  static bool _isEmpty(Uint8List mask) {
-
-    for (final v in mask) {
-
-      if (v == 1) return false;
-
-    }
-
-    return true;
-
-  }
-
-  // ---------------------------------------------------------------------
-
-  // Curve smoothing + resampling
-
-  // ---------------------------------------------------------------------
-
-  /// Chaikin corner-cutting: turns a jagged pixel-stair boundary into a
-
-  /// smooth curve that follows the actual shape of the artwork.
-
-  static List<List<double>> _chaikin(List<List<int>> pts, {int iterations = 2}) {
-
-    List<List<double>> cur =
-
-        pts.map((p) => [p[0].toDouble(), p[1].toDouble()]).toList();
-
-    for (var it = 0; it < iterations; it++) {
-
-      if (cur.length < 3) break;
-
-      final next = <List<double>>[];
-
-      for (var i = 0; i < cur.length; i++) {
-
-        final a = cur[i];
-
-        final b = cur[(i + 1) % cur.length];
-
-        next.add([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
-
-        next.add([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
-
-      }
-
-      cur = next;
-
-    }
-
-    return cur;
-
-  }
-
-  static List<List<double>> _resampleByCount(List<List<double>> pts, int count) {
-
-    if (pts.length <= 2 || count <= 0) return pts;
-
-    // arc-length parametrize, then sample evenly -> constant point density
-
-    // along the curve regardless of local pixel noise.
-
-    final dist = List<double>.filled(pts.length, 0);
-
-    for (var i = 1; i < pts.length; i++) {
-
-      final dx = pts[i][0] - pts[i - 1][0];
-
-      final dy = pts[i][1] - pts[i - 1][1];
-
-      dist[i] = dist[i - 1] + math.sqrt(dx * dx + dy * dy);
-
-    }
-
-    final total = dist.last;
-
-    if (total <= 0) return [pts.first];
-
-    final out = <List<double>>[];
-
-    var seg = 0;
-
-    for (var k = 0; k < count; k++) {
-
-      final target = total * k / (count - 1 == 0 ? 1 : count - 1);
-
-      while (seg < dist.length - 2 && dist[seg + 1] < target) {
-
-        seg++;
-
-      }
-
-      final segLen = dist[seg + 1] - dist[seg];
-
-      final t = segLen <= 0 ? 0.0 : (target - dist[seg]) / segLen;
-
-      final a = pts[seg];
-
-      final b = pts[seg + 1];
-
-      out.add([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
-
-    }
-
-    return out;
-
-  }
+  // ---------------------------------------------------------------------------
+  // Coordinate conversion
+  // ---------------------------------------------------------------------------
 
   static TuftPoint _pxToMm(
-
     double px,
-
     double py,
-
     int w,
-
     int h,
-
     double workW,
-
     double workH,
-
   ) {
-
     return TuftPoint(
-
-      x: px / (w - 1) * workW,
-
-      y: (1.0 - py / (h - 1)) * workH,
-
+      x: px /
+          math.max(1, w - 1) *
+          workW,
+      y: (1.0 -
+              py /
+                  math.max(1, h - 1)) *
+          workH,
     );
-
   }
 
-  // ---------------------------------------------------------------------
-
-  // G-code emission (pauses for a thread change between color groups)
-
-  // ---------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // G-code
+  // ---------------------------------------------------------------------------
 
   static String toGCode(
     List<TuftPoint> points, {
@@ -1086,10 +1115,15 @@ class PathExtractor {
   }) {
     final b = StringBuffer();
 
-    b.writeln('; ROVEX path — ${points.length} pts');
+    b.writeln(
+      '; ROVEX path — ${points.length} pts',
+    );
+
     b.writeln('G21');
     b.writeln('G90');
-    b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+    b.writeln(
+      'G0 Z${safeZ.toStringAsFixed(2)}',
+    );
 
     if (points.isEmpty) {
       b.writeln('M2');
@@ -1099,112 +1133,94 @@ class PathExtractor {
     int? lastColorOrder;
     TuftPoint? previousPoint;
 
-    for (final p in points) {
+    for (final point in points) {
       final colorChanged =
-          p.colorOrder != null && p.colorOrder != lastColorOrder;
+          point.colorOrder != null &&
+              point.colorOrder !=
+                  lastColorOrder;
 
       if (colorChanged) {
         if (lastColorOrder != null) {
-          if (embroidery) b.writeln('M9 ; needle up');
-          b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
-
-          final hex = p.colorValue != null
-              ? '#${(p.colorValue! & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}'
-              : '?';
+          if (embroidery) {
+            b.writeln(
+              'M9 ; needle up',
+            );
+          }
 
           b.writeln(
-            'M0 ; THREAD CHANGE -> color ${p.colorOrder} ($hex)',
+            'G0 Z${safeZ.toStringAsFixed(2)}',
+          );
+
+          final hex =
+              point.colorValue != null
+                  ? '#${(point.colorValue! & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}'
+                  : '?';
+
+          b.writeln(
+            'M0 ; THREAD CHANGE -> color ${point.colorOrder} ($hex)',
           );
         }
 
-        // Move to the new color while the needle is up.
         b.writeln(
-          'G0 X${p.x.toStringAsFixed(2)} Y${p.y.toStringAsFixed(2)}',
+          'G0 X${point.x.toStringAsFixed(2)} '
+          'Y${point.y.toStringAsFixed(2)}',
         );
 
-        if (embroidery) b.writeln('M8 ; needle engage');
+        if (embroidery) {
+          b.writeln(
+            'M8 ; needle engage',
+          );
+        }
 
-        lastColorOrder = p.colorOrder;
+        lastColorOrder =
+            point.colorOrder;
       } else if (previousPoint == null) {
         b.writeln(
-          'G0 X${p.x.toStringAsFixed(2)} Y${p.y.toStringAsFixed(2)}',
+          'G0 X${point.x.toStringAsFixed(2)} '
+          'Y${point.y.toStringAsFixed(2)}',
         );
 
-        if (embroidery) b.writeln('M8 ; needle engage');
+        if (embroidery) {
+          b.writeln(
+            'M8 ; needle engage',
+          );
+        }
       }
 
       b.writeln(
-        'G1 X${p.x.toStringAsFixed(2)} '
-        'Y${p.y.toStringAsFixed(2)} '
+        'G1 X${point.x.toStringAsFixed(2)} '
+        'Y${point.y.toStringAsFixed(2)} '
         'F${feedMmMin.toStringAsFixed(0)}',
       );
 
-      previousPoint = p;
+      previousPoint = point;
     }
 
     if (embroidery) {
-      b.writeln('M9 ; needle up');
-      b.writeln('G0 Z${safeZ.toStringAsFixed(2)}');
+      b.writeln(
+        'M9 ; needle up',
+      );
+
+      b.writeln(
+        'G0 Z${safeZ.toStringAsFixed(2)}',
+      );
     }
 
     b.writeln('M2');
+
     return b.toString();
   }
-
 }
 
-class _Region {
 
-  final int id;
 
-  final int seedIndex;
-
-  final int pixelCount;
-
-  final double cx;
-
-  final double cy;
-
-  final int minX, minY, maxX, maxY;
-
-  final double fillRatio;
-
-  _Region({
-
-    required this.id,
-
-    required this.seedIndex,
-
-    required this.pixelCount,
-
-    required this.cx,
-
-    required this.cy,
-
-    required this.minX,
-
-    required this.minY,
-
-    required this.maxX,
-
-    required this.maxY,
-
-    required this.fillRatio,
-
-  });
-
-}
-
-/// Global top-level function called by [MachineService] isolates.
-
-ExtractResult extractPathFromImageBytes(Uint8List bytes, {double pitch = 10.0}) {
-
+/// Global top-level function called by MachineService isolates.
+ExtractResult extractPathFromImageBytes(
+  Uint8List bytes, {
+  double pitch = 3.0,
+}) {
   return PathExtractor.extractMultiColor(
-
     bytes,
-
-    pitchMm: pitch,
-
+    pitchMm: pitch.clamp(1.0, 5.0),
   );
-
 }

@@ -1,0 +1,30 @@
+[33m9c9db0b[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m refactor: remove unused import of dart:async in splash_screen.dart
+[33m9660615[m feat: remove ambient audio service and related references from the project
+[33m8e8417d[m refactor: enhance path extraction logic and improve color palette handling
+[33mcf7284f[m refactor: adjust color merge distance constant for clarity
+[33mf2e829b[m refactor: simplify background color threshold constant in PathExtractor
+[33m19c21ca[m feat: enhance path extraction by refining pixel mask and palette building logic
+[33m41ad9d5[m feat: remove ambient sound file from assets to streamline project
+[33m471e71b[m Implement real-time control firmware for tufting system
+[33mc7cbf1b[m feat: remove ambient sound file to streamline audio assets
+[33m3a0bdbe[m feat: remove design image display from PathPreview and update empty state message
+[33md6d16a8[m Refactor code structure for improved readability and maintainability
+[33me349e9e[m feat: update DesignAreaBody to remove sample project display and adjust layout for tuft visualization
+[33mc68f2f4[m feat: add image cropping functionality to DesignAreaBody and enhance GCodeService with improved G-code generation
+[33m717673e[m feat: enhance GCodeService with improved image resizing and G-code generation logic
+[33m4029445[m feat: update image dependency to version 4.9.2 and add GCodeService for image processing and G-code generation
+[33m2ca6bc0[m feat: improve isometric projection calculations for better machine visualization
+[33md2fe583[m feat: enhance Needle3dAreaBody with additional parameters for machine state visualization
+[33m2427000[m feat: enhance machine service logic for needle control during embroidery moves
+[33m2181b25[m feat: enhance Needle3dAreaBody layout and improve 3D rendering for machine visualization
+[33m11c84d6[m feat: enhance HmiButton shadow effect for improved visual feedback
+[33m8a09305[m feat: update HmiButton scaling method for improved button press animation
+[33m680d4bb[m feat: enhance machine control panel with HmiButton component for improved UI interaction
+[33m2bff803[m feat: implement language support for English and Arabic with locale management
+[33m6077cd1[m feat: add Arabic language support and localization improvements
+[33m1665f2c[m feat: replace Flutter web icons with ROVEX branding
+[33ma658ad4[m feat: replace Flutter web icons with ROVEX branding
+[33mb738981[m feat: improve ROVEX splash screen and branding
+[33m3b8ecb7[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mtest-branch[m[33m)[m feat: improve design preview and English-only interface
+[33mdfd1cf5[m feat: add full design image preview with path visualization
+[33m6205d15[m feat: add full design image preview with path visualization
