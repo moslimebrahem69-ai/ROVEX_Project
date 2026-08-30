@@ -270,7 +270,7 @@ class _PathPainter extends CustomPainter {
       point.y,
      );
 
-     final Color tuftColor = Color(point.colorValue ?? 0xFF000000);
+     final Color tuftColor = Color(point.colorValue!);
 
   tuftPaint.color = tuftColor;
 
@@ -302,7 +302,7 @@ canvas.translate(
   head.dy,
 );
 
-// حجم المسدس
+ 
 const gunScale = 0.65;
 
 canvas.scale(
