@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -12,14 +13,6 @@ import 'dxf_parser.dart';
 import 'path_extractor.dart';
 import 'runtime_link.dart';
 
-/// Handles communication with the machine controller.
-///
-/// Supports:
-/// - Arduino / ESP through WiFi/LAN
-/// - Local C runtime on desktop
-/// - Local simulation fallback
-///
-/// Communication uses a line-based JSON protocol.
 class MachineService extends ChangeNotifier {
   static const _localProfile = MachineProfile(
     id: 'local',
@@ -37,6 +30,7 @@ class MachineService extends ChangeNotifier {
   bool _started = false;
 
   MachineStatus _status = const MachineStatus();
+
   HmiArea _area = HmiArea.machine;
 
   String _message = 'Waiting for machine runtime...';
@@ -55,7 +49,6 @@ class MachineService extends ChangeNotifier {
   String? _designName;
 
   Uint8List? _designImage;
-
   bool _isDxf = false;
   bool _extracting = false;
 
@@ -65,15 +58,37 @@ class MachineService extends ChangeNotifier {
 
   List<TuftPoint> _programPoints = [];
   List<ColorGroup> _colorGroups = [];
-  List<MachineProfile> _machines = [_localProfile];
 
+  List<MachineProfile> _machines = [_localProfile];
   MachineProfile _activeMachine = _localProfile;
 
   final List<PlcMacro> _plcMacros = List.from(PlcMacro.defaults);
 
-  // ---------------------------------------------------------------------------
-  // Getters
-  // ---------------------------------------------------------------------------
+  bool _colorRunMode = false;
+  bool _colorCompletionPending = false;
+  int? _activeColorRunOrder;
+  int? _completedColorOrder;
+
+  List<TuftPoint> _allDesignPoints = [];
+  List<int> _colorRunOrders = [];
+
+  bool _colorRunExecuting = false;
+  bool _colorRunCancelled = false;
+  bool _colorRunStarting = false;
+
+  List<TuftPoint> _localPath = [];
+
+  int _localIndex = 0;
+
+  double _segT = 0;
+  double _segDur = 0.08;
+
+  double _fromX = 0;
+  double _fromY = 0;
+  double _toX = 0;
+  double _toY = 0;
+
+  bool _haveSeg = false;
 
   MachineStatus get status => _status;
 
@@ -101,10 +116,113 @@ class MachineService extends ChangeNotifier {
 
   int get colorCount => _colorGroups.length;
 
+  bool get colorRunMode => _colorRunMode;
+
+  bool get colorCompletionPending => _colorCompletionPending;
+
+  int? get activeColorRunOrder => _activeColorRunOrder;
+
+  int? get completedColorOrder => _completedColorOrder;
+
+  int get completedColorNumber {
+    if (_completedColorOrder == null) {
+      return 0;
+    }
+
+    final index =
+        _colorRunOrders.indexOf(_completedColorOrder!);
+
+    return index < 0 ? 0 : index + 1;
+  }
+
+  int get totalColorRunCount => _colorRunOrders.length;
+
+  int get nextColorNumber {
+    final order = nextColorOrder;
+
+    if (order == null) {
+      return 0;
+    }
+
+    final index = _colorRunOrders.indexOf(order);
+
+    return index < 0 ? 0 : index + 1;
+  }
+
+  int? get nextColorOrder {
+    if (_activeColorRunOrder == null) {
+      return null;
+    }
+
+    final index =
+        _colorRunOrders.indexOf(_activeColorRunOrder!);
+
+    if (index < 0 ||
+        index + 1 >= _colorRunOrders.length) {
+      return null;
+    }
+
+    return _colorRunOrders[index + 1];
+  }
+
+  ColorGroup? get completedColorGroup {
+    final order = _completedColorOrder;
+
+    if (order == null) {
+      return null;
+    }
+
+    for (final group in _colorGroups) {
+      if (group.order == order) {
+        return group;
+      }
+    }
+
+    return null;
+  }
+
+  ColorGroup? get nextColorGroup {
+    final order = nextColorOrder;
+
+    if (order == null) {
+      return null;
+    }
+
+    for (final group in _colorGroups) {
+      if (group.order == order) {
+        return group;
+      }
+    }
+
+    return null;
+  }
+
+  String get completedColorName {
+    final group = completedColorGroup;
+
+    return group == null
+        ? 'Unknown'
+        : _colorName(group.colorValue);
+  }
+
+  String get nextColorName {
+    final group = nextColorGroup;
+
+    return group == null
+        ? 'Unknown'
+        : _colorName(group.colorValue);
+  }
+
   int? get activeColorOrder {
+    if (_colorRunMode &&
+        _activeColorRunOrder != null) {
+      return _activeColorRunOrder;
+    }
+
     final index = _status.pathIndex;
 
-    if (index < 0 || index >= _programPoints.length) {
+    if (index < 0 ||
+        index >= _programPoints.length) {
       return _programPoints.isNotEmpty
           ? _programPoints.last.colorOrder
           : null;
@@ -117,7 +235,8 @@ class MachineService extends ChangeNotifier {
 
   String? get designName => _designName;
 
-  bool get hasDesign => _designImage != null || _isDxf;
+  bool get hasDesign =>
+      _designImage != null || _isDxf;
 
   bool get isDxfDesign => _isDxf;
 
@@ -127,18 +246,18 @@ class MachineService extends ChangeNotifier {
 
   bool get isExtracting => _extracting;
 
-  List<PlcMacro> get plcMacros => List.unmodifiable(_plcMacros);
+  List<PlcMacro> get plcMacros =>
+      List.unmodifiable(_plcMacros);
 
-  List<MachineProfile> get machines => List.unmodifiable(_machines);
+  List<MachineProfile> get machines =>
+      List.unmodifiable(_machines);
 
   MachineProfile get activeMachine => _activeMachine;
 
-  // ---------------------------------------------------------------------------
-  // Lifecycle
-  // ---------------------------------------------------------------------------
-
   Future<void> start() async {
-    if (_started) return;
+    if (_started) {
+      return;
+    }
 
     _started = true;
 
@@ -159,12 +278,15 @@ class MachineService extends ChangeNotifier {
 
   @override
   void dispose() {
-    if (_disposed) return;
+    if (_disposed) {
+      return;
+    }
 
     _disposed = true;
 
     _reconnect?.cancel();
     _localTick?.cancel();
+
     _link.close();
 
     super.dispose();
@@ -175,10 +297,6 @@ class MachineService extends ChangeNotifier {
       notifyListeners();
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // UI / Setup
-  // ---------------------------------------------------------------------------
 
   void setArea(HmiArea area) {
     _area = area;
@@ -210,15 +328,13 @@ class MachineService extends ChangeNotifier {
     _notify();
   }
 
-  // ---------------------------------------------------------------------------
-  // Machine Profiles
-  // ---------------------------------------------------------------------------
-
   Future<void> _loadMachines() async {
     try {
       final raw = await _link.loadText('machines');
 
-      if (raw == null) return;
+      if (raw == null) {
+        return;
+      }
 
       final decoded = jsonDecode(raw) as List<dynamic>;
 
@@ -234,9 +350,7 @@ class MachineService extends ChangeNotifier {
         _machines = loaded;
         _activeMachine = loaded.first;
       }
-    } catch (_) {
-      // Ignore invalid or unavailable machine configuration.
-    }
+    } catch (_) {}
   }
 
   Future<void> _saveMachines() async {
@@ -244,12 +358,12 @@ class MachineService extends ChangeNotifier {
       await _link.saveText(
         'machines',
         jsonEncode(
-          _machines.map((machine) => machine.toJson()).toList(),
+          _machines
+              .map((machine) => machine.toJson())
+              .toList(),
         ),
       );
-    } catch (_) {
-      // Ignore storage errors.
-    }
+    } catch (_) {}
   }
 
   Future<void> addMachine({
@@ -258,22 +372,36 @@ class MachineService extends ChangeNotifier {
     int port = 9100,
   }) async {
     final machine = MachineProfile(
-      id: DateTime.now().microsecondsSinceEpoch.toString(),
-      name: name.trim().isEmpty ? host : name.trim(),
+      id: DateTime.now()
+          .microsecondsSinceEpoch
+          .toString(),
+      name: name.trim().isEmpty
+          ? host
+          : name.trim(),
       host: host.trim(),
       port: port,
     );
 
-    _machines = [..._machines, machine];
+    _machines = [
+      ..._machines,
+      machine,
+    ];
 
     await _saveMachines();
+
     _notify();
   }
 
   Future<void> removeMachine(String id) async {
-    if (id == _localProfile.id) return;
+    if (id == _localProfile.id) {
+      return;
+    }
 
-    _machines = _machines.where((machine) => machine.id != id).toList();
+    _machines = _machines
+        .where(
+          (machine) => machine.id != id,
+        )
+        .toList();
 
     if (_machines.isEmpty) {
       _machines = [_localProfile];
@@ -284,11 +412,15 @@ class MachineService extends ChangeNotifier {
     }
 
     await _saveMachines();
+
     _notify();
   }
 
-  Future<void> connectToMachine(MachineProfile machine) async {
+  Future<void> connectToMachine(
+    MachineProfile machine,
+  ) async {
     _activeMachine = machine;
+
     _connectingMachine = true;
     _runtimeLinked = false;
 
@@ -303,13 +435,14 @@ class MachineService extends ChangeNotifier {
     await _tryConnectRuntime();
   }
 
-  // ---------------------------------------------------------------------------
-  // Runtime Connection
-  // ---------------------------------------------------------------------------
-
   Future<void> _tryConnectRuntime() async {
-    if (kIsWeb) return;
-    if (_link.isConnected) return;
+    if (kIsWeb) {
+      return;
+    }
+
+    if (_link.isConnected) {
+      return;
+    }
 
     final connected = await _link.connect(
       _activeMachine.host,
@@ -328,7 +461,10 @@ class MachineService extends ChangeNotifier {
           'Linked to ${_activeMachine.name} — '
           '${_activeMachine.host}:${_activeMachine.port}';
 
-      await sendCmd({'cmd': 'get_status'});
+      await sendCmd({
+        'cmd': 'get_status',
+      });
+
       _notify();
     } else {
       _runtimeLinked = false;
@@ -338,6 +474,7 @@ class MachineService extends ChangeNotifier {
     }
 
     _connectingMachine = false;
+
     _notify();
   }
 
@@ -347,25 +484,40 @@ class MachineService extends ChangeNotifier {
     _runtimeLinked = false;
     _useLocalSim = true;
 
-    _message = 'Runtime disconnected — local sim active';
+    _message =
+        'Runtime disconnected — local sim active';
 
     _startLocalSimIfNeeded();
+
     _notify();
   }
 
   void _onLine(String line) {
-    if (line.trim().isEmpty) return;
+    if (line.trim().isEmpty) {
+      return;
+    }
 
     try {
-      final json = jsonDecode(line) as Map<String, dynamic>;
+      final json =
+          jsonDecode(line) as Map<String, dynamic>;
 
-      if (json['type'] != 'status') return;
+      if (json['type'] != 'status') {
+        return;
+      }
+
+      final previousState = _status.state;
 
       _status = MachineStatus.fromJson(json);
 
+      if (_colorRunExecuting &&
+          previousState == MachineState.running &&
+          _status.state == MachineState.idle) {
+        _handleColorRunCompletion();
+      }
+
       if (_status.alarm.isNotEmpty) {
         _message = _status.alarm;
-      } else {
+      } else if (!_colorCompletionPending) {
         _message =
             '${_status.modeLabel} | '
             '${_status.stateLabel} | '
@@ -373,23 +525,23 @@ class MachineService extends ChangeNotifier {
       }
 
       _notify();
-    } catch (_) {
-      // Ignore malformed runtime messages.
-    }
+    } catch (_) {}
   }
 
-  Future<void> sendCmd(Map<String, dynamic> command) async {
-    if (_runtimeLinked && _link.isConnected) {
-      await _link.send(jsonEncode(command));
+  Future<void> sendCmd(
+    Map<String, dynamic> command,
+  ) async {
+    if (_runtimeLinked &&
+        _link.isConnected) {
+      await _link.send(
+        jsonEncode(command),
+      );
+
       return;
     }
 
     _localHandle(command);
   }
-
-  // ---------------------------------------------------------------------------
-  // Machine Commands
-  // ---------------------------------------------------------------------------
 
   Future<void> connectMachine() async {
     await sendCmd({
@@ -403,10 +555,14 @@ class MachineService extends ChangeNotifier {
   }
 
   Future<void> disconnectMachine() {
-    return sendCmd({'cmd': 'disconnect'});
+    return sendCmd({
+      'cmd': 'disconnect',
+    });
   }
 
-  Future<void> setMode(MachineMode mode) async {
+  Future<void> setMode(
+    MachineMode mode,
+  ) async {
     const modeMap = {
       MachineMode.jog: 'JOG',
       MachineMode.auto: 'AUTO',
@@ -420,7 +576,10 @@ class MachineService extends ChangeNotifier {
     });
   }
 
-  Future<void> jog(String axis, int direction) {
+  Future<void> jog(
+    String axis,
+    int direction,
+  ) {
     return sendCmd({
       'cmd': 'jog',
       'axis': axis,
@@ -436,7 +595,9 @@ class MachineService extends ChangeNotifier {
 
     final status = _status;
 
-    if (status.mode != MachineMode.jog) return;
+    if (status.mode != MachineMode.jog) {
+      return;
+    }
 
     var z = status.z +
         status.jogStep *
@@ -454,37 +615,93 @@ class MachineService extends ChangeNotifier {
   }
 
   Future<void> home() {
-    return sendCmd({'cmd': 'home'});
+    return sendCmd({
+      'cmd': 'home',
+    });
   }
 
-  Future<void> cycleStart() {
-    return sendCmd({'cmd': 'cycle_start'});
+  Future<void> cycleStart() async {
+    if (_colorRunMode) {
+      if (_colorCompletionPending) {
+        return;
+      }
+
+      if (_activeColorRunOrder == null) {
+        await startColorRun();
+      } else if (!_colorRunExecuting) {
+        await _runActiveColor();
+      }
+
+      return;
+    }
+
+    if (_colorGroups.length > 1 &&
+        _programPoints.any(
+          (point) => point.colorOrder != null,
+        )) {
+      await startColorRun();
+      return;
+    }
+
+    await sendCmd({
+      'cmd': 'cycle_start',
+    });
   }
 
   Future<void> feedHold() {
-    return sendCmd({'cmd': 'feed_hold'});
+    return sendCmd({
+      'cmd': 'feed_hold',
+    });
   }
 
-  Future<void> cycleStop() {
-    return sendCmd({'cmd': 'cycle_stop'});
+  Future<void> cycleStop() async {
+    _colorRunExecuting = false;
+    _haveSeg = false;
+
+    await sendCmd({
+      'cmd': 'cycle_stop',
+    });
+
+    if (_colorRunMode) {
+      _message = 'Color run stopped';
+      _notify();
+    }
   }
 
-  Future<void> reset() {
-    return sendCmd({'cmd': 'reset'});
+  Future<void> reset() async {
+    _colorRunExecuting = false;
+    _haveSeg = false;
+
+    await sendCmd({
+      'cmd': 'reset',
+    });
+
+    if (_colorRunMode) {
+      _resetColorRunState();
+    }
   }
 
-  Future<void> estop() {
-    return sendCmd({'cmd': 'estop'});
+  Future<void> estop() async {
+    _colorRunExecuting = false;
+    _haveSeg = false;
+
+    await sendCmd({
+      'cmd': 'estop',
+    });
   }
 
-  Future<void> setFeedOverride(int percent) {
+  Future<void> setFeedOverride(
+    int percent,
+  ) {
     return sendCmd({
       'cmd': 'set_feed_override',
       'percent': percent,
     });
   }
 
-  Future<void> setJogStep(double step) {
+  Future<void> setJogStep(
+    double step,
+  ) {
     return sendCmd({
       'cmd': 'set_jog_step',
       'step': step.toStringAsFixed(3),
@@ -498,10 +715,6 @@ class MachineService extends ChangeNotifier {
     });
   }
 
-  // ---------------------------------------------------------------------------
-  // Path / G-Code
-  // ---------------------------------------------------------------------------
-
   void setExtractPitch(double mm) {
     _extractPitchMm = mm.clamp(2, 20);
     _notify();
@@ -511,13 +724,16 @@ class MachineService extends ChangeNotifier {
     _gCode = generateAdvancedGCode(
       points: _programPoints,
       colorGroups: _colorGroups,
-      programName: _designName ?? 'Generated_Path',
+      programName:
+          _designName ?? 'Generated_Path',
     );
 
     _notify();
   }
 
-  Future<void> loadPathFile(String path) async {
+  Future<void> loadPathFile(
+    String path,
+  ) async {
     _loadedProgramName = _link.basename(path);
 
     await sendCmd({
@@ -533,12 +749,21 @@ class MachineService extends ChangeNotifier {
       for (final line in lines.skip(1)) {
         final parts = line.split(',');
 
-        if (parts.length < 2) continue;
+        if (parts.length < 2) {
+          continue;
+        }
+
+        final x = double.tryParse(parts[0]);
+        final y = double.tryParse(parts[1]);
+
+        if (x == null || y == null) {
+          continue;
+        }
 
         _programPoints.add(
           TuftPoint(
-            x: double.parse(parts[0]),
-            y: double.parse(parts[1]),
+            x: x,
+            y: y,
           ),
         );
       }
@@ -560,7 +785,12 @@ class MachineService extends ChangeNotifier {
 
     final ordered = _optimizeNearest(points);
 
+    _allDesignPoints =
+        List<TuftPoint>.from(ordered);
+
     _programPoints = ordered;
+
+    _prepareColorRunOrders();
 
     _gCode = generateAdvancedGCode(
       points: ordered,
@@ -568,7 +798,9 @@ class MachineService extends ChangeNotifier {
       programName: name,
     );
 
-    final rows = <String>['x_mm,y_mm'];
+    final rows = <String>[
+      'x_mm,y_mm',
+    ];
 
     for (final point in ordered) {
       rows.add(
@@ -577,15 +809,21 @@ class MachineService extends ChangeNotifier {
       );
     }
 
-    final filePath = await _link.writeProgramCsv(
+    final filePath =
+        await _link.writeProgramCsv(
       name,
       rows,
     );
 
     await setMode(MachineMode.auto);
+
     await loadPathFile(filePath);
 
-    _loadedProgramName = _link.basename(filePath);
+    _allDesignPoints =
+        List<TuftPoint>.from(ordered);
+
+    _loadedProgramName =
+        _link.basename(filePath);
 
     _message =
         'Program loaded: $_loadedProgramName '
@@ -596,10 +834,6 @@ class MachineService extends ChangeNotifier {
     return filePath;
   }
 
-  // ---------------------------------------------------------------------------
-  // Design Loading
-  // ---------------------------------------------------------------------------
-
   Future<void> loadDesignImage(
     Uint8List bytes,
     String name,
@@ -609,9 +843,16 @@ class MachineService extends ChangeNotifier {
     _designName = name;
 
     _programPoints = [];
+    _allDesignPoints = [];
+    _colorGroups = [];
+    _colorRunOrders = [];
+
+    _resetColorRunState();
+
     _gCode = '';
 
-    _message = 'Design loaded — extracting path...';
+    _message =
+        'Design loaded — extracting path...';
 
     _notify();
 
@@ -627,14 +868,22 @@ class MachineService extends ChangeNotifier {
     _designName = name;
 
     _programPoints = [];
+    _allDesignPoints = [];
     _colorGroups = [];
+    _colorRunOrders = [];
+
+    _resetColorRunState();
+
     _gCode = '';
 
-    _message = 'DXF loaded — building exact path...';
+    _message =
+        'DXF loaded — building exact path...';
 
     _notify();
 
-    if (_extracting) return;
+    if (_extracting) {
+      return;
+    }
 
     _extracting = true;
     _notify();
@@ -656,7 +905,15 @@ class MachineService extends ChangeNotifier {
       );
 
       _programPoints = result.points;
+
+      _allDesignPoints =
+          List<TuftPoint>.from(
+        result.points,
+      );
+
       _colorGroups = result.colors;
+
+      _prepareColorRunOrders();
 
       _gCode = generateAdvancedGCode(
         points: result.points,
@@ -675,7 +932,9 @@ class MachineService extends ChangeNotifier {
       _message = 'DXF read failed: $error';
 
       _programPoints = [];
+      _allDesignPoints = [];
       _colorGroups = [];
+      _colorRunOrders = [];
       _gCode = '';
     }
 
@@ -687,14 +946,23 @@ class MachineService extends ChangeNotifier {
     String assetPath,
     String name,
   ) async {
-    final data = await rootBundle.load(assetPath);
-    final bytes = data.buffer.asUint8List();
+    final data =
+        await rootBundle.load(assetPath);
 
-    await loadDesignImage(bytes, name);
+    final bytes =
+        data.buffer.asUint8List();
+
+    await loadDesignImage(
+      bytes,
+      name,
+    );
   }
 
   Future<void> extractPathFromDesign() async {
-    if (_designImage == null || _extracting) return;
+    if (_designImage == null ||
+        _extracting) {
+      return;
+    }
 
     _extracting = true;
     _message = 'Extracting path...';
@@ -719,12 +987,21 @@ class MachineService extends ChangeNotifier {
       );
 
       _programPoints = result.points;
+
+      _allDesignPoints =
+          List<TuftPoint>.from(
+        result.points,
+      );
+
       _colorGroups = result.colors;
+
+      _prepareColorRunOrders();
 
       _gCode = generateAdvancedGCode(
         points: result.points,
         colorGroups: result.colors,
-        programName: _designName ?? 'Image_Design',
+        programName:
+            _designName ?? 'Image_Design',
       );
 
       _message = result.points.isEmpty
@@ -736,7 +1013,9 @@ class MachineService extends ChangeNotifier {
       _message = 'Extraction failed: $error';
 
       _programPoints = [];
+      _allDesignPoints = [];
       _colorGroups = [];
+      _colorRunOrders = [];
       _gCode = '';
     }
 
@@ -749,17 +1028,413 @@ class MachineService extends ChangeNotifier {
     _isDxf = false;
     _designName = null;
     _gCode = '';
+
+    _programPoints = [];
+    _allDesignPoints = [];
     _colorGroups = [];
+    _colorRunOrders = [];
+
+    _resetColorRunState();
 
     _notify();
+  }
+
+  void _prepareColorRunOrders() {
+    final orders = <int>{};
+
+    for (final point in _allDesignPoints) {
+      final order = point.colorOrder;
+
+      if (order != null) {
+        orders.add(order);
+      }
+    }
+
+    for (final group in _colorGroups) {
+      orders.add(group.order);
+    }
+
+    _colorRunOrders =
+        orders.toList()..sort();
+  }
+
+  List<TuftPoint> _pointsForColor(
+    int colorOrder,
+  ) {
+    return _allDesignPoints
+        .where(
+          (point) =>
+              point.colorOrder == colorOrder,
+        )
+        .toList();
+  }
+
+  ColorGroup? _groupForOrder(
+    int order,
+  ) {
+    for (final group in _colorGroups) {
+      if (group.order == order) {
+        return group;
+      }
+    }
+
+    return null;
+  }
+
+  String _colorName(
+    int colorValue,
+  ) {
+    final rgb =
+        colorValue & 0x00FFFFFF;
+
+    const names = <int, String>{
+      0x000000: 'Black',
+      0xFFFFFF: 'White',
+      0xFF0000: 'Red',
+      0x00FF00: 'Green',
+      0x0000FF: 'Blue',
+      0xFFFF00: 'Yellow',
+      0xFFA500: 'Orange',
+      0x800080: 'Purple',
+      0xFFC0CB: 'Pink',
+      0x00FFFF: 'Cyan',
+      0xFF00FF: 'Magenta',
+      0x808080: 'Gray',
+      0xA52A2A: 'Brown',
+    };
+
+    final exact = names[rgb];
+
+    if (exact != null) {
+      return exact;
+    }
+
+    final r = (rgb >> 16) & 0xFF;
+    final g = (rgb >> 8) & 0xFF;
+    final b = rgb & 0xFF;
+
+    if (r > 220 && g < 90 && b < 90) {
+      return 'Red';
+    }
+
+    if (r < 90 && g > 170 && b < 90) {
+      return 'Green';
+    }
+
+    if (r < 90 && g < 150 && b > 170) {
+      return 'Blue';
+    }
+
+    if (r > 200 &&
+        g > 170 &&
+        b < 100) {
+      return 'Yellow';
+    }
+
+    if (r > 220 &&
+        g > 100 &&
+        g < 190 &&
+        b < 100) {
+      return 'Orange';
+    }
+
+    if (r > 180 &&
+        g < 130 &&
+        b > 150) {
+      return 'Pink';
+    }
+
+    if (r > 170 &&
+        g < 100 &&
+        b > 170) {
+      return 'Magenta';
+    }
+
+    if (r < 100 &&
+        g > 170 &&
+        b > 170) {
+      return 'Cyan';
+    }
+
+    if (r > 180 &&
+        g > 180 &&
+        b > 180) {
+      return 'White';
+    }
+
+    if (r < 70 &&
+        g < 70 &&
+        b < 70) {
+      return 'Black';
+    }
+
+    if ((r - g).abs() < 20 &&
+        (g - b).abs() < 20) {
+      return 'Gray';
+    }
+
+    return 'Color #${rgb.toRadixString(16).padLeft(6, '0').toUpperCase()}';
+  }
+
+  Future<void> startColorRun() async {
+    if (_colorRunStarting ||
+        _colorRunExecuting ||
+        _colorRunOrders.isEmpty) {
+      return;
+    }
+
+    _colorRunStarting = true;
+    _colorRunCancelled = false;
+    _colorCompletionPending = false;
+    _completedColorOrder = null;
+
+    _activeColorRunOrder =
+        _colorRunOrders.first;
+
+    _colorRunMode = true;
+
+    _message =
+        'Preparing ${_colorNameForOrder(_activeColorRunOrder!)}...';
+
+    _notify();
+
+    try {
+      await _runActiveColor();
+    } finally {
+      _colorRunStarting = false;
+    }
+  }
+
+  Future<void> continueNextColor() async {
+    if (!_colorRunMode ||
+        !_colorCompletionPending ||
+        _colorRunCancelled) {
+      return;
+    }
+
+    final nextOrder = nextColorOrder;
+
+    if (nextOrder == null) {
+      _finishColorRun();
+      return;
+    }
+
+    _colorCompletionPending = false;
+    _completedColorOrder = null;
+
+    _activeColorRunOrder = nextOrder;
+
+    _message =
+        'Preparing ${_colorNameForOrder(nextOrder)}...';
+
+    _notify();
+
+    await _runActiveColor();
+  }
+
+  Future<void> cancelColorRun() async {
+    if (!_colorRunMode) {
+      return;
+    }
+
+    _colorRunCancelled = true;
+    _colorCompletionPending = false;
+    _colorRunExecuting = false;
+    _haveSeg = false;
+
+    if (_status.state == MachineState.running) {
+      await sendCmd({
+        'cmd': 'cycle_stop',
+      });
+    }
+
+    _message = 'Color run cancelled';
+
+    _resetColorRunState();
+
+    _notify();
+  }
+
+  Future<void> _runActiveColor() async {
+    final order = _activeColorRunOrder;
+
+    if (!_colorRunMode ||
+        order == null ||
+        _colorRunCancelled ||
+        _colorRunExecuting) {
+      return;
+    }
+
+    final colorPoints =
+        _pointsForColor(order);
+
+    if (colorPoints.length < 2) {
+      _message =
+          '${_colorNameForOrder(order)} has no drawable path';
+
+      _notify();
+
+      _handleColorRunCompletion();
+
+      return;
+    }
+
+    _colorRunExecuting = true;
+    _colorCompletionPending = false;
+
+    _programPoints = colorPoints;
+
+    final group = _groupForOrder(order);
+
+    final colorName = group == null
+        ? _colorNameForOrder(order)
+        : _colorName(group.colorValue);
+
+    _message =
+        'Running $colorName '
+        '(${_colorRunOrders.indexOf(order) + 1}/'
+        '${_colorRunOrders.length})';
+
+    _notify();
+
+    final programName =
+        '${_designName ?? 'ROVEX_DESIGN'}_color_$order';
+
+    final rows = <String>[
+      'x_mm,y_mm',
+    ];
+
+    for (final point in colorPoints) {
+      rows.add(
+        '${point.x.toStringAsFixed(3)},'
+        '${point.y.toStringAsFixed(3)}',
+      );
+    }
+
+    try {
+      final filePath =
+          await _link.writeProgramCsv(
+        programName,
+        rows,
+      );
+
+      await setMode(MachineMode.auto);
+
+      await loadPathFile(filePath);
+
+      if (_colorRunCancelled) {
+        return;
+      }
+
+      await sendCmd({
+        'cmd': 'cycle_start',
+      });
+    } catch (error) {
+      _colorRunExecuting = false;
+
+      _message =
+          'Failed to start $colorName: $error';
+
+      _notify();
+    }
+  }
+
+  void _handleColorRunCompletion() {
+    if (!_colorRunMode ||
+        !_colorRunExecuting ||
+        _activeColorRunOrder == null) {
+      return;
+    }
+
+    _colorRunExecuting = false;
+    _haveSeg = false;
+
+    final completedOrder =
+        _activeColorRunOrder!;
+
+    final completedName =
+        _colorNameForOrder(completedOrder);
+
+    _completedColorOrder =
+        completedOrder;
+
+    _colorCompletionPending = true;
+
+    final nextOrder = nextColorOrder;
+
+    if (nextOrder == null) {
+      _message =
+          'Completed $completedName — all colors finished';
+    } else {
+      _message =
+          'Completed $completedName — '
+          'ready for ${_colorNameForOrder(nextOrder)}';
+    }
+
+    _status = _copy(
+      _status,
+      state: MachineState.idle,
+      needle: false,
+      progPct: 100,
+    );
+
+    _notify();
+  }
+
+  String _colorNameForOrder(
+    int order,
+  ) {
+    final group = _groupForOrder(order);
+
+    if (group == null) {
+      return 'Color ${_colorRunOrders.indexOf(order) + 1}';
+    }
+
+    return _colorName(
+      group.colorValue,
+    );
+  }
+
+  void _finishColorRun() {
+    _colorRunMode = false;
+    _colorRunExecuting = false;
+    _colorCompletionPending = false;
+    _colorRunCancelled = false;
+
+    _completedColorOrder = null;
+    _activeColorRunOrder = null;
+
+    _programPoints =
+        List<TuftPoint>.from(
+      _allDesignPoints,
+    );
+
+    _message = 'All colors completed';
+
+    _notify();
+  }
+
+  void _resetColorRunState() {
+    _colorRunMode = false;
+    _colorCompletionPending = false;
+    _colorRunExecuting = false;
+    _colorRunCancelled = false;
+    _colorRunStarting = false;
+
+    _activeColorRunOrder = null;
+    _completedColorOrder = null;
   }
 
   List<TuftPoint> _optimizeNearest(
     List<TuftPoint> input,
   ) {
-    if (input.isEmpty) return input;
+    if (input.isEmpty) {
+      return input;
+    }
 
-    final remaining = List<TuftPoint>.from(input);
+    final remaining =
+        List<TuftPoint>.from(input);
+
     final result = <TuftPoint>[
       remaining.removeAt(0),
     ];
@@ -770,11 +1445,17 @@ class MachineService extends ChangeNotifier {
 
       final last = result.last;
 
-      for (var i = 0; i < remaining.length; i++) {
-        final dx = remaining[i].x - last.x;
-        final dy = remaining[i].y - last.y;
+      for (var i = 0;
+          i < remaining.length;
+          i++) {
+        final dx =
+            remaining[i].x - last.x;
 
-        final distance = dx * dx + dy * dy;
+        final dy =
+            remaining[i].y - last.y;
+
+        final distance =
+            dx * dx + dy * dy;
 
         if (distance < bestDistance) {
           bestDistance = distance;
@@ -790,31 +1471,17 @@ class MachineService extends ChangeNotifier {
     return result;
   }
 
-  // ---------------------------------------------------------------------------
-  // Local Simulation
-  // ---------------------------------------------------------------------------
-
-  List<TuftPoint> _localPath = [];
-
-  int _localIndex = 0;
-
-  double _segT = 0;
-  double _segDur = 0.08;
-
-  double _fromX = 0;
-  double _fromY = 0;
-  double _toX = 0;
-  double _toY = 0;
-
-  bool _haveSeg = false;
-
   void _startLocalSimIfNeeded() {
-    if (!_useLocalSim) return;
+    if (!_useLocalSim) {
+      return;
+    }
 
     _localTick ??= Timer.periodic(
       const Duration(milliseconds: 50),
       (_) {
-        if (!_useLocalSim) return;
+        if (!_useLocalSim) {
+          return;
+        }
 
         _localTickOnce(0.05);
       },
@@ -839,11 +1506,17 @@ class MachineService extends ChangeNotifier {
     }
   }
 
-  void _localHandle(Map<String, dynamic> command) {
-    final cmd = command['cmd'] as String? ?? '';
+  void _localHandle(
+    Map<String, dynamic> command,
+  ) {
+    final cmd =
+        command['cmd'] as String? ?? '';
+
     final status = _status;
 
-    void updateStatus(MachineStatus newStatus) {
+    void updateStatus(
+      MachineStatus newStatus,
+    ) {
       _status = newStatus;
       _notify();
     }
@@ -859,11 +1532,14 @@ class MachineService extends ChangeNotifier {
             connected: true,
             feedOverride: status.feedOverride,
             backend:
-                command['backend'] as String? ?? 'sim',
+                command['backend'] as String? ??
+                    'sim',
             port:
-                command['port'] as String? ?? 'local',
+                command['port'] as String? ??
+                    'local',
             baud:
-                (command['baud'] as num?)?.toInt() ??
+                (command['baud'] as num?)
+                        ?.toInt() ??
                     115200,
             jogStep: status.jogStep,
             pathLoaded: status.pathLoaded,
@@ -874,6 +1550,7 @@ class MachineService extends ChangeNotifier {
 
         _message =
             'Connected (${_status.backend})';
+
         break;
 
       case 'disconnect':
@@ -885,6 +1562,7 @@ class MachineService extends ChangeNotifier {
             jogStep: status.jogStep,
           ),
         );
+
         break;
 
       case 'set_mode':
@@ -899,6 +1577,7 @@ class MachineService extends ChangeNotifier {
             alarm: '',
           ),
         );
+
         break;
 
       case 'jog':
@@ -911,23 +1590,29 @@ class MachineService extends ChangeNotifier {
               alarm: 'JOG mode required',
             ),
           );
+
           return;
         }
 
         final axis =
-            command['axis'] as String? ?? 'X';
+            command['axis'] as String? ??
+                'X';
 
         final direction =
-            (command['dir'] as num?)?.toInt() ?? 1;
+            (command['dir'] as num?)
+                    ?.toInt() ??
+                1;
 
         var x = status.x;
         var y = status.y;
         var z = status.z;
 
-        final step = status.jogStep *
-            (direction >= 0 ? 1 : -1);
+        final step =
+            status.jogStep *
+                (direction >= 0 ? 1 : -1);
 
-        final normalizedAxis = axis.toUpperCase();
+        final normalizedAxis =
+            axis.toUpperCase();
 
         if (normalizedAxis == 'X') {
           x += step;
@@ -959,6 +1644,7 @@ class MachineService extends ChangeNotifier {
               alarm: 'Soft limit',
             ),
           );
+
           return;
         }
 
@@ -970,6 +1656,7 @@ class MachineService extends ChangeNotifier {
             alarm: '',
           ),
         );
+
         break;
 
       case 'home':
@@ -985,12 +1672,16 @@ class MachineService extends ChangeNotifier {
             needle: false,
           ),
         );
+
         break;
 
       case 'load_path':
-        final path = command['path'] as String?;
+        final path =
+            command['path'] as String?;
 
-        if (path == null) return;
+        if (path == null) {
+          return;
+        }
 
         () async {
           final lines =
@@ -999,13 +1690,16 @@ class MachineService extends ChangeNotifier {
           if (lines == null) {
             if (_programPoints.length >= 2) {
               _localPath =
-                  List<TuftPoint>.from(_programPoints);
+                  List<TuftPoint>.from(
+                _programPoints,
+              );
 
               updateStatus(
                 _copy(
                   status,
                   pathLoaded: true,
-                  pathCount: _localPath.length,
+                  pathCount:
+                      _localPath.length,
                   pathIndex: 0,
                   progPct: 0,
                   alarm: '',
@@ -1029,15 +1723,29 @@ class MachineService extends ChangeNotifier {
 
           _localPath = [];
 
-          for (final line in lines.skip(1)) {
-            final parts = line.split(',');
+          for (final line
+              in lines.skip(1)) {
+            final parts =
+                line.split(',');
 
-            if (parts.length < 2) continue;
+            if (parts.length < 2) {
+              continue;
+            }
+
+            final x =
+                double.tryParse(parts[0]);
+
+            final y =
+                double.tryParse(parts[1]);
+
+            if (x == null || y == null) {
+              continue;
+            }
 
             _localPath.add(
               TuftPoint(
-                x: double.parse(parts[0]),
-                y: double.parse(parts[1]),
+                x: x,
+                y: y,
               ),
             );
           }
@@ -1045,28 +1753,40 @@ class MachineService extends ChangeNotifier {
           updateStatus(
             _copy(
               status,
-              pathLoaded: _localPath.length >= 2,
-              pathCount: _localPath.length,
+              pathLoaded:
+                  _localPath.length >= 2,
+              pathCount:
+                  _localPath.length,
               pathIndex: 0,
               progPct: 0,
-              alarm: _localPath.length >= 2
-                  ? ''
-                  : 'Path empty',
+              alarm:
+                  _localPath.length >= 2
+                      ? ''
+                      : 'Path empty',
             ),
           );
 
           _loadedProgramName =
               _link.basename(path);
 
-          _programPoints =
-              List<TuftPoint>.from(_localPath);
+          if (!_colorRunMode) {
+            _programPoints =
+                List<TuftPoint>.from(
+              _localPath,
+            );
+          }
         }();
 
         break;
 
       case 'cycle_start':
-        if (status.mode == MachineMode.mdi) {
-          _localMdi(status, _mdiLine);
+        if (status.mode ==
+            MachineMode.mdi) {
+          _localMdi(
+            status,
+            _mdiLine,
+          );
+
           return;
         }
 
@@ -1076,12 +1796,17 @@ class MachineService extends ChangeNotifier {
         final hasLocalPath =
             _localPath.length >= 2;
 
-        if (status.mode != MachineMode.auto ||
-            (!status.pathLoaded && !hasProgram) ||
-            (!hasLocalPath && !hasProgram)) {
+        if (status.mode !=
+                MachineMode.auto ||
+            (!status.pathLoaded &&
+                !hasProgram) ||
+            (!hasLocalPath &&
+                !hasProgram)) {
           if (hasProgram) {
             _localPath =
-                List<TuftPoint>.from(_programPoints);
+                List<TuftPoint>.from(
+              _programPoints,
+            );
           } else {
             updateStatus(
               _copy(
@@ -1090,16 +1815,21 @@ class MachineService extends ChangeNotifier {
                 alarm: 'Path empty',
               ),
             );
+
             return;
           }
         }
 
-        if (_localPath.length < 2 && hasProgram) {
+        if (_localPath.length < 2 &&
+            hasProgram) {
           _localPath =
-              List<TuftPoint>.from(_programPoints);
+              List<TuftPoint>.from(
+            _programPoints,
+          );
         }
 
-        if (status.state == MachineState.hold) {
+        if (status.state ==
+            MachineState.hold) {
           updateStatus(
             _copy(
               status,
@@ -1107,11 +1837,17 @@ class MachineService extends ChangeNotifier {
               alarm: '',
             ),
           );
+
           return;
         }
 
         _localIndex = 0;
+
         _beginLocalSeg();
+
+        _colorRunExecuting =
+            _colorRunMode ||
+                _colorRunExecuting;
 
         updateStatus(
           _copy(
@@ -1120,15 +1856,20 @@ class MachineService extends ChangeNotifier {
             x: _localPath[0].x,
             y: _localPath[0].y,
             pathLoaded: true,
-            pathCount: _localPath.length,
+            pathCount:
+                _localPath.length,
+            pathIndex: 0,
+            progPct: 0,
             alarm: '',
             needle: true,
           ),
         );
+
         break;
 
       case 'feed_hold':
-        if (status.state == MachineState.running) {
+        if (status.state ==
+            MachineState.running) {
           updateStatus(
             _copy(
               status,
@@ -1137,10 +1878,12 @@ class MachineService extends ChangeNotifier {
             ),
           );
         }
+
         break;
 
       case 'cycle_stop':
         _haveSeg = false;
+        _colorRunExecuting = false;
 
         updateStatus(
           _copy(
@@ -1149,10 +1892,12 @@ class MachineService extends ChangeNotifier {
             needle: false,
           ),
         );
+
         break;
 
       case 'reset':
         _haveSeg = false;
+        _colorRunExecuting = false;
 
         updateStatus(
           _copy(
@@ -1164,10 +1909,12 @@ class MachineService extends ChangeNotifier {
             needle: false,
           ),
         );
+
         break;
 
       case 'estop':
         _haveSeg = false;
+        _colorRunExecuting = false;
 
         updateStatus(
           _copy(
@@ -1177,6 +1924,7 @@ class MachineService extends ChangeNotifier {
             needle: false,
           ),
         );
+
         break;
 
       case 'set_feed_override':
@@ -1189,25 +1937,30 @@ class MachineService extends ChangeNotifier {
                     100,
           ),
         );
+
         break;
 
       case 'set_jog_step':
         updateStatus(
           _copy(
             status,
-            jogStep: double.tryParse(
-                  '${command['step']}',
-                ) ??
-                1.0,
+            jogStep:
+                double.tryParse(
+                      '${command['step']}',
+                    ) ??
+                    1.0,
           ),
         );
+
         break;
 
       case 'mdi':
         _localMdi(
           status,
-          command['line'] as String? ?? '',
+          command['line'] as String? ??
+              '',
         );
+
         break;
     }
   }
@@ -1216,7 +1969,8 @@ class MachineService extends ChangeNotifier {
     MachineStatus status,
     String line,
   ) {
-    if (status.mode != MachineMode.mdi) {
+    if (status.mode !=
+        MachineMode.mdi) {
       _status = _copy(
         status,
         state: MachineState.alarm,
@@ -1224,24 +1978,31 @@ class MachineService extends ChangeNotifier {
       );
 
       _notify();
+
       return;
     }
 
     var x = status.x;
     var y = status.y;
 
-    final xMatch =
-        RegExp(r'[Xx]\s*([-\d.]+)').firstMatch(line);
+    final xMatch = RegExp(
+      r'[Xx]\s*([-0-9.]+)',
+    ).firstMatch(line);
 
-    final yMatch =
-        RegExp(r'[Yy]\s*([-\d.]+)').firstMatch(line);
+    final yMatch = RegExp(
+      r'[Yy]\s*([-0-9.]+)',
+    ).firstMatch(line);
 
     if (xMatch != null) {
-      x = double.parse(xMatch.group(1)!);
+      x = double.parse(
+        xMatch.group(1)!,
+      );
     }
 
     if (yMatch != null) {
-      y = double.parse(yMatch.group(1)!);
+      y = double.parse(
+        yMatch.group(1)!,
+      );
     }
 
     if (x < 0 ||
@@ -1266,7 +2027,8 @@ class MachineService extends ChangeNotifier {
   }
 
   void _beginLocalSeg() {
-    if (_localIndex >= _localPath.length - 1) {
+    if (_localIndex >=
+        _localPath.length - 1) {
       _haveSeg = false;
 
       _status = _copy(
@@ -1276,15 +2038,27 @@ class MachineService extends ChangeNotifier {
         needle: false,
       );
 
+      if (_colorRunMode &&
+          _colorRunExecuting) {
+        _handleColorRunCompletion();
+      }
+
       _notify();
+
       return;
     }
 
-    _fromX = _localPath[_localIndex].x;
-    _fromY = _localPath[_localIndex].y;
+    _fromX =
+        _localPath[_localIndex].x;
 
-    _toX = _localPath[_localIndex + 1].x;
-    _toY = _localPath[_localIndex + 1].y;
+    _fromY =
+        _localPath[_localIndex].y;
+
+    _toX =
+        _localPath[_localIndex + 1].x;
+
+    _toY =
+        _localPath[_localIndex + 1].y;
 
     final dx = _toX - _fromX;
     final dy = _toY - _fromY;
@@ -1293,7 +2067,6 @@ class MachineService extends ChangeNotifier {
       dx * dx + dy * dy,
     );
 
-    // Simulation speed in mm/second.
     const simulationSpeed = 45.0;
 
     _segDur = distance < 1e-6
@@ -1307,8 +2080,11 @@ class MachineService extends ChangeNotifier {
     _haveSeg = true;
   }
 
-  void _localTickOnce(double dt) {
-    if (_status.state != MachineState.running ||
+  void _localTickOnce(
+    double dt,
+  ) {
+    if (_status.state !=
+            MachineState.running ||
         !_haveSeg) {
       return;
     }
@@ -1316,33 +2092,43 @@ class MachineService extends ChangeNotifier {
     _segT += dt;
 
     var progress =
-        _segDur <= 0 ? 1.0 : _segT / _segDur;
+        _segDur <= 0
+            ? 1.0
+            : _segT / _segDur;
 
     if (progress > 1) {
       progress = 1;
     }
 
     final x =
-        _fromX + (_toX - _fromX) * progress;
+        _fromX +
+            (_toX - _fromX) *
+                progress;
 
     final y =
-        _fromY + (_toY - _fromY) * progress;
+        _fromY +
+            (_toY - _fromY) *
+                progress;
 
-    final percentage = _localPath.length > 1
-        ? 100.0 *
-            (_localIndex + progress) /
-            (_localPath.length - 1)
-        : 0.0;
+    final percentage =
+        _localPath.length > 1
+            ? 100.0 *
+                (_localIndex +
+                    progress) /
+                (_localPath.length - 1)
+            : 0.0;
 
     final isLastSegment =
-        _localIndex >= _localPath.length - 2 &&
+        _localIndex >=
+                _localPath.length - 2 &&
             progress >= 0.999;
 
     _status = _copy(
       _status,
       x: x,
       y: y,
-      progPct: percentage.clamp(0, 100),
+      progPct:
+          percentage.clamp(0, 100),
       pathIndex: _localIndex,
       needle: !isLastSegment,
     );
@@ -1352,7 +2138,8 @@ class MachineService extends ChangeNotifier {
     if (progress >= 1) {
       _localIndex++;
 
-      if (_localIndex >= _localPath.length - 1) {
+      if (_localIndex >=
+          _localPath.length - 1) {
         _haveSeg = false;
 
         _status = _copy(
@@ -1360,22 +2147,25 @@ class MachineService extends ChangeNotifier {
           x: _localPath.last.x,
           y: _localPath.last.y,
           progPct: 100,
-          pathIndex: _localPath.length - 1,
+          pathIndex:
+              _localPath.length - 1,
           state: MachineState.idle,
           needle: false,
         );
 
+        if (_colorRunMode &&
+            _colorRunExecuting) {
+          _handleColorRunCompletion();
+        }
+
         _notify();
+
         return;
       }
 
       _beginLocalSeg();
     }
   }
-
-  // ---------------------------------------------------------------------------
-  // Machine Status Copy
-  // ---------------------------------------------------------------------------
 
   MachineStatus _copy(
     MachineStatus status, {
@@ -1436,10 +2226,6 @@ class MachineService extends ChangeNotifier {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // PLC Macros
-  // ---------------------------------------------------------------------------
-
   void updatePlcMacro(
     int index,
     PlcMacro macro,
@@ -1450,10 +2236,13 @@ class MachineService extends ChangeNotifier {
     }
 
     _plcMacros[index] = macro;
+
     _notify();
   }
 
-  void addPlcMacro(PlcMacro macro) {
+  void addPlcMacro(
+    PlcMacro macro,
+  ) {
     _plcMacros.add(macro);
     _notify();
   }
@@ -1461,9 +2250,12 @@ class MachineService extends ChangeNotifier {
   Future<void> runPlcMacro(
     PlcMacro macro,
   ) async {
-    await setMode(MachineMode.mdi);
+    await setMode(
+      MachineMode.mdi,
+    );
 
     setMdiLine(macro.code);
+
     await runMdi();
 
     _message =
@@ -1471,10 +2263,6 @@ class MachineService extends ChangeNotifier {
 
     _notify();
   }
-
-  // ---------------------------------------------------------------------------
-  // Advanced G-Code Generator
-  // ---------------------------------------------------------------------------
 
   static String generateAdvancedGCode({
     required List<TuftPoint> points,
@@ -1492,35 +2280,72 @@ class MachineService extends ChangeNotifier {
 
     final sb = StringBuffer();
 
-    sb.writeln('; ============================================');
-    sb.writeln('; ROVEX Advanced G-Code Generator');
-    sb.writeln('; Program Name : $programName');
-    sb.writeln('; Total Points : ${points.length}');
-    sb.writeln('; Color Groups : ${colorGroups.length}');
-    sb.writeln('; ============================================');
+    sb.writeln(
+      '; ============================================',
+    );
 
-    sb.writeln('G21 ; Set units to millimeters');
-    sb.writeln('G90 ; Set positioning to absolute mode');
-    sb.writeln('G17 ; Select XY plane');
+    sb.writeln(
+      '; ROVEX Advanced G-Code Generator',
+    );
+
+    sb.writeln(
+      '; Program Name : $programName',
+    );
+
+    sb.writeln(
+      '; Total Points : ${points.length}',
+    );
+
+    sb.writeln(
+      '; Color Groups : ${colorGroups.length}',
+    );
+
+    sb.writeln(
+      '; ============================================',
+    );
+
+    sb.writeln(
+      'G21 ; Set units to millimeters',
+    );
+
+    sb.writeln(
+      'G90 ; Set positioning to absolute mode',
+    );
+
+    sb.writeln(
+      'G17 ; Select XY plane',
+    );
+
     sb.writeln(
       'G0 Z${safeZ.toStringAsFixed(2)} '
       '; Retract head to safe height',
     );
 
     double? activeFeed;
+
     String activeMotionMode = '';
 
     TuftPoint? currentPoint;
+
     int currentColorOrder = -1;
 
-    void updateMotionMode(String mode) {
+    void updateMotionMode(
+      String mode,
+    ) {
       activeMotionMode = mode;
     }
 
-    void applyFeed(double targetFeed) {
-      if (activeFeed == targetFeed) return;
+    void applyFeed(
+      double targetFeed,
+    ) {
+      if (activeFeed == targetFeed) {
+        return;
+      }
 
-      sb.write(' F${targetFeed.toInt()}');
+      sb.write(
+        ' F${targetFeed.toInt()}',
+      );
+
       activeFeed = targetFeed;
     }
 
@@ -1528,10 +2353,16 @@ class MachineService extends ChangeNotifier {
       TuftPoint target, {
       required bool isCutting,
     }) {
-      final motionMode = isCutting ? 'G1' : 'G0';
-      final feed = isCutting ? cutFeed : travelFeed;
+      final motionMode =
+          isCutting ? 'G1' : 'G0';
 
-      if (activeMotionMode != motionMode) {
+      final feed =
+          isCutting
+              ? cutFeed
+              : travelFeed;
+
+      if (activeMotionMode !=
+          motionMode) {
         sb.write(motionMode);
         updateMotionMode(motionMode);
       }
@@ -1542,6 +2373,7 @@ class MachineService extends ChangeNotifier {
       );
 
       applyFeed(feed);
+
       sb.writeln();
 
       currentPoint = target;
@@ -1552,11 +2384,13 @@ class MachineService extends ChangeNotifier {
     while (index < points.length) {
       final point = points[index];
 
-      // Color group boundary.
-      if (point.colorOrder != currentColorOrder) {
-        currentColorOrder = point.colorOrder ?? 0;
+      if (point.colorOrder !=
+          currentColorOrder) {
+        currentColorOrder =
+            point.colorOrder ?? 0;
 
         sb.writeln();
+
         sb.writeln(
           '; --- Color Group #$currentColorOrder ---',
         );
@@ -1583,19 +2417,23 @@ class MachineService extends ChangeNotifier {
         );
 
         index++;
+
         continue;
       }
 
-      // Detect jumps or gaps inside the same color group.
       if (currentPoint != null) {
-        final dx = point.x - currentPoint!.x;
-        final dy = point.y - currentPoint!.y;
+        final dx =
+            point.x - currentPoint!.x;
+
+        final dy =
+            point.y - currentPoint!.y;
 
         final distance = math.sqrt(
           dx * dx + dy * dy,
         );
 
-        if (distance > jumpThreshold) {
+        if (distance >
+            jumpThreshold) {
           sb.writeln(
             '; Travel Jump Detected '
             '(${distance.toStringAsFixed(1)}mm)',
@@ -1623,27 +2461,37 @@ class MachineService extends ChangeNotifier {
           );
 
           index++;
+
           continue;
         }
       }
 
-      // Arc fitting using three consecutive points.
-      if (index + 2 < points.length) {
+      if (index + 2 <
+          points.length) {
         final p1 = point;
         final p2 = points[index + 1];
         final p3 = points[index + 2];
 
-        if (p2.colorOrder == currentColorOrder &&
-            p3.colorOrder == currentColorOrder) {
-          final arc = _fitArc(p1, p2, p3);
+        if (p2.colorOrder ==
+                currentColorOrder &&
+            p3.colorOrder ==
+                currentColorOrder) {
+          final arc = _fitArc(
+            p1,
+            p2,
+            p3,
+          );
 
           if (arc != null &&
               arc.radius > 1.0 &&
               arc.radius < 500.0) {
             final command =
-                arc.isClockwise ? 'G2' : 'G3';
+                arc.isClockwise
+                    ? 'G2'
+                    : 'G3';
 
-            if (activeMotionMode != command) {
+            if (activeMotionMode !=
+                command) {
               sb.write(command);
               updateMotionMode(command);
             }
@@ -1656,9 +2504,11 @@ class MachineService extends ChangeNotifier {
             );
 
             applyFeed(cutFeed);
+
             sb.writeln();
 
             currentPoint = p3;
+
             index += 3;
 
             continue;
@@ -1666,7 +2516,6 @@ class MachineService extends ChangeNotifier {
         }
       }
 
-      // Standard linear movement.
       moveToPoint(
         point,
         isCutting: true,
@@ -1675,10 +2524,15 @@ class MachineService extends ChangeNotifier {
       index++;
     }
 
-    // Program footer.
     sb.writeln();
-    sb.writeln('; --- Program End Cleanup ---');
-    sb.writeln('M9 ; Disengage tool');
+
+    sb.writeln(
+      '; --- Program End Cleanup ---',
+    );
+
+    sb.writeln(
+      'M9 ; Disengage tool',
+    );
 
     sb.writeln(
       'G0 Z${safeZ.toStringAsFixed(2)} '
@@ -1689,60 +2543,78 @@ class MachineService extends ChangeNotifier {
       'G0 X0.00 Y0.00 ; Return to origin',
     );
 
-    sb.writeln('M30 ; End of program');
+    sb.writeln(
+      'M30 ; End of program',
+    );
 
     return sb.toString();
   }
-
-  // ---------------------------------------------------------------------------
-  // Arc Fitting
-  // ---------------------------------------------------------------------------
 
   static ArcFittingResult? _fitArc(
     TuftPoint p1,
     TuftPoint p2,
     TuftPoint p3,
   ) {
-    final denominator = 2 *
-        (p1.x * (p2.y - p3.y) +
-            p2.x * (p3.y - p1.y) +
-            p3.x * (p1.y - p2.y));
+    final denominator =
+        2 *
+            (p1.x *
+                    (p2.y - p3.y) +
+                p2.x *
+                    (p3.y - p1.y) +
+                p3.x *
+                    (p1.y - p2.y));
 
-    if (denominator.abs() < 1e-4) {
+    if (denominator.abs() <
+        1e-4) {
       return null;
     }
 
     final centerX =
-        ((p1.x * p1.x + p1.y * p1.y) *
+        ((p1.x * p1.x +
+                    p1.y * p1.y) *
                 (p2.y - p3.y) +
-            (p2.x * p2.x + p2.y * p2.y) *
+            (p2.x * p2.x +
+                    p2.y * p2.y) *
                 (p3.y - p1.y) +
-            (p3.x * p3.x + p3.y * p3.y) *
+            (p3.x * p3.x +
+                    p3.y * p3.y) *
                 (p1.y - p2.y)) /
             denominator;
 
     final centerY =
-        ((p1.x * p1.x + p1.y * p1.y) *
+        ((p1.x * p1.x +
+                    p1.y * p1.y) *
                 (p3.x - p2.x) +
-            (p2.x * p2.x + p2.y * p2.y) *
+            (p2.x * p2.x +
+                    p2.y * p2.y) *
                 (p1.x - p3.x) +
-            (p3.x * p3.x + p3.y * p3.y) *
+            (p3.x * p3.x +
+                    p3.y * p3.y) *
                 (p2.x - p1.x)) /
             denominator;
 
     final radius = math.sqrt(
-      math.pow(p1.x - centerX, 2) +
-          math.pow(p1.y - centerY, 2),
+      math.pow(
+            p1.x - centerX,
+            2,
+          ) +
+          math.pow(
+            p1.y - centerY,
+            2,
+          ),
     );
 
     final i = centerX - p1.x;
     final j = centerY - p1.y;
 
     final crossProduct =
-        (p2.x - p1.x) * (p3.y - p1.y) -
-            (p2.y - p1.y) * (p3.x - p1.x);
+        (p2.x - p1.x) *
+                (p3.y - p1.y) -
+            (p2.y - p1.y) *
+                (p3.x - p1.x);
 
-    final isClockwise = crossProduct < 0;
+    final isClockwise =
+        crossProduct < 0;
 
     return ArcFittingResult(
       i: i,
@@ -1752,10 +2624,6 @@ class MachineService extends ChangeNotifier {
     );
   }
 }
-
-// -----------------------------------------------------------------------------
-// Arc Fitting Result
-// -----------------------------------------------------------------------------
 
 class ArcFittingResult {
   final double i;
@@ -1770,10 +2638,6 @@ class ArcFittingResult {
     required this.isClockwise,
   });
 }
-
-// -----------------------------------------------------------------------------
-// PLC Macro
-// -----------------------------------------------------------------------------
 
 class PlcMacro {
   final String name;
@@ -1832,14 +2696,11 @@ class PlcMacro {
   ];
 }
 
-// -----------------------------------------------------------------------------
-// Top-Level Isolate Functions
-// -----------------------------------------------------------------------------
-
 ExtractResult _dxfExtractIsolate(
   Map<String, dynamic> args,
 ) {
-  final bytes = args['bytes'] as Uint8List;
+  final bytes =
+      args['bytes'] as Uint8List;
 
   return parseDxfEntities(bytes);
 }
@@ -1848,10 +2709,13 @@ ExtractResult _extractIsolate(
   Map<String, dynamic> args,
 ) {
   try {
-    final bytes = args['bytes'] as Uint8List;
+    final bytes =
+        args['bytes'] as Uint8List;
 
     final pitch =
-        (args['pitch'] as num?)?.toDouble() ?? 10.0;
+        (args['pitch'] as num?)
+                ?.toDouble() ??
+            10.0;
 
     return extractPathFromImageBytes(
       bytes,

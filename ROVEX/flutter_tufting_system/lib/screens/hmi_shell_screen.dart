@@ -21,13 +21,108 @@ class HmiShellScreen extends StatefulWidget {
 }
 
 class _HmiShellScreenState extends State<HmiShellScreen> {
+  MachineService? _machineService;
+  bool _dialogVisible = false;
+
   @override
   void initState() {
     super.initState();
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MachineService>().start();
+      if (!mounted) return;
+
+      final service = context.read<MachineService>();
+
+      _machineService = service;
+      service.addListener(_handleMachineUpdate);
+      service.start();
     });
+  }
+
+  @override
+  void dispose() {
+    _machineService?.removeListener(_handleMachineUpdate);
+    super.dispose();
+  }
+
+  void _handleMachineUpdate() {
+    if (!mounted || _dialogVisible) return;
+
+    final service = _machineService;
+    if (service == null) return;
+
+    if (!service.colorCompletionPending) return;
+
+    _showColorCompletionDialog(service);
+  }
+
+  Future<void> _showColorCompletionDialog(
+    MachineService service,
+  ) async {
+    if (!mounted || _dialogVisible) return;
+
+    final completedColor = service.completedColorName;
+    final nextColor = service.nextColorName;
+    final hasNextColor = service.nextColorGroup != null;
+
+    _dialogVisible = true;
+
+    final shouldContinue = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Color Completed'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                hasNextColor
+                    ? 'The machine has finished drawing the current color.'
+                    : 'The machine has finished the final color.',
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Completed color: $completedColor',
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              if (hasNextColor) ...[
+                const SizedBox(height: 8),
+                Text('Next color: $nextColor'),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            if (hasNextColor)
+              FilledButton(
+                onPressed: () {
+                  Navigator.of(context).pop(true);
+                },
+                child: const Text('Start Next Color'),
+              ),
+          ],
+        );
+      },
+    );
+
+    _dialogVisible = false;
+
+    if (!mounted) return;
+
+    if (shouldContinue == true) {
+      await service.continueNextColor();
+    } else {
+      await service.cancelColorRun();
+    }
   }
 
   @override
