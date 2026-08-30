@@ -733,24 +733,55 @@ class MachineService extends ChangeNotifier {
   }
 
   void _beginLocalSeg() {
-    if (_localIndex >= _localPath.length - 1) {
-      _haveSeg = false;
-      _status = _copy(_status,
-          state: MachineState.idle, progPct: 100, needle: false);
-      _notify();
-      return;
-    }
-    _fromX = _localPath[_localIndex].x;
-    _fromY = _localPath[_localIndex].y;
-    _toX = _localPath[_localIndex + 1].x;
-    _toY = _localPath[_localIndex + 1].y;
-    final dx = _toX - _fromX, dy = _toY - _fromY;
-    final dist = math.sqrt(dx * dx + dy * dy);
-    final vmax = 250.0 * (_status.feedOverride / 100.0);
-    _segDur = dist < 1e-6 ? 0.01 : dist / math.max(vmax, 1);
-    _segT = 0;
-    _haveSeg = true;
+
+  if (_localIndex >= _localPath.length - 1) {
+
+    _haveSeg = false;
+
+    _status = _copy(
+      _status,
+      state: MachineState.idle,
+      progPct: 100,
+      needle: false,
+    );
+
+    _notify();
+
+    return;
   }
+
+  _fromX = _localPath[_localIndex].x;
+  _fromY = _localPath[_localIndex].y;
+
+  _toX = _localPath[_localIndex + 1].x;
+  _toY = _localPath[_localIndex + 1].y;
+
+  // ===============================================================
+  // SIMULATION SPEED
+  // ===============================================================
+
+  final dx = _toX - _fromX;
+  final dy = _toY - _fromY;
+
+  final distance = math.sqrt(
+    dx * dx + dy * dy,
+  );
+
+  // سرعة حركة مسدس التطريز في المعاينة
+  // mm / second
+  const simulationSpeed = 45.0;
+
+  _segDur = distance < 1e-6
+      ? 0.04
+      : math.max(
+          0.04,
+          distance / simulationSpeed,
+        );
+
+  _segT = 0.0;
+
+  _haveSeg = true;
+}
 
   void _localTickOnce(double dt) {
     if (_status.state != MachineState.running || !_haveSeg) return;

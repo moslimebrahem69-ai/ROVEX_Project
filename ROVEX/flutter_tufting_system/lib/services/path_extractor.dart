@@ -5,16 +5,7 @@ import 'package:image/image.dart' as img;
 
 import '../models/design.dart';
 
-/// Bitmap to multi-color tufting stitch paths.
-///
-/// Pipeline:
-/// 1. Decode and normalize the source image.
-/// 2. Detect the image background from the outer border.
-/// 3. Build a foreground-only color palette.
-/// 4. Create an independent mask for every detected thread color.
-/// 5. Fill each color region using scanlines while preserving the source shape.
-/// 6. Space stitches according to the requested physical pitch.
-/// 7. Emit colors sequentially so the HMI can handle thread changes.
+
 class PathExtractor {
   static const int _maxSide = 420;
   static const int _maxColors = 8;

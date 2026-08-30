@@ -270,7 +270,7 @@ class _PathPainter extends CustomPainter {
       point.y,
      );
 
-     final Color tuftColor = Color(point.colorValue!);
+     final Color tuftColor = Color(point.colorValue ?? 0xFF000000);
 
   tuftPaint.color = tuftColor;
 
@@ -286,27 +286,38 @@ class _PathPainter extends CustomPainter {
     // MACHINE HEAD / NEEDLE
     // ===============================================================
 
-    final head = map(
-      headX,
-      headY,
-    );
+    // ===============================================================
+// TUFTING GUN
+// ===============================================================
 
-    canvas.drawCircle(
-      head,
-      8,
-      Paint()
-        ..color = HmiColors.alarm
-        ..style = PaintingStyle.fill,
-    );
+final head = map(
+  headX,
+  headY,
+);
 
-    canvas.drawCircle(
-      head,
-      13,
-      Paint()
-        ..color =HmiColors.warn
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.5,
-    );
+canvas.save();
+
+canvas.translate(
+  head.dx,
+  head.dy,
+);
+
+// حجم المسدس
+const gunScale = 0.65;
+
+canvas.scale(
+  gunScale,
+  gunScale,
+);
+
+ _TuftingGunPainter(
+  active: progressIndex > 0,
+).paint(
+  canvas,
+  const Size(80, 70),
+);
+
+canvas.restore();
   }
 
   @override
@@ -317,5 +328,100 @@ class _PathPainter extends CustomPainter {
         old.headX != headX ||
         old.headY != headY ||
         old.progressIndex != progressIndex;
+  }
+}
+// ===================================================================
+// TUFTING GUN PAINTER
+// ===================================================================
+
+class _TuftingGunPainter extends CustomPainter {
+  final bool active;
+
+  const _TuftingGunPainter({
+    required this.active,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final scale = size.width / 80.0;
+
+    canvas.scale(scale, scale);
+
+    final bodyPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFF30343A);
+
+    final metalPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFFB8BEC6);
+
+    final darkPaint = Paint()
+      ..style = PaintingStyle.fill
+      ..color = const Color(0xFF15181C);
+
+    // جسم مسدس التطريز
+    final body = RRect.fromRectAndRadius(
+      const Rect.fromLTWH(15, 12, 42, 25),
+      const Radius.circular(5),
+    );
+
+    canvas.drawRRect(
+      body,
+      bodyPaint,
+    );
+
+    // الجزء الأمامي
+    canvas.drawRect(
+      const Rect.fromLTWH(54, 17, 13, 14),
+      metalPaint,
+    );
+
+    // الإبرة
+    canvas.drawRect(
+      const Rect.fromLTWH(65, 22, 10, 3),
+      darkPaint,
+    );
+
+    // المقبض
+    final handle = Path()
+      ..moveTo(25, 35)
+      ..lineTo(43, 35)
+      ..lineTo(49, 62)
+      ..lineTo(31, 62)
+      ..close();
+
+    canvas.drawPath(
+      handle,
+      bodyPaint,
+    );
+
+    // الجزء العلوي
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(27, 6, 20, 8),
+        const Radius.circular(3),
+      ),
+      metalPaint,
+    );
+
+    // مؤشر الحركة / الإبرة
+    if (active) {
+      final needlePaint = Paint()
+        ..color = HmiColors.accent
+        ..strokeWidth = 2;
+
+      canvas.drawLine(
+        const Offset(75, 20),
+        const Offset(75, 30),
+        needlePaint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(
+    covariant _TuftingGunPainter oldDelegate,
+  ) {
+    return oldDelegate.active != active;
   }
 }
