@@ -10,26 +10,20 @@ import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
 import 'machines_screen.dart';
 
-/// Isometric 3D-ish view of gantry + embroidery needle.
-
 class Needle3dAreaBody extends StatelessWidget {
   const Needle3dAreaBody({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final svc = context.watch<MachineService>();
-    final t = context.watch<LocaleController>().l10n;
-    final s = svc.status;
+    final service = context.watch<MachineService>();
+    final localization = context.watch<LocaleController>().l10n;
+    final status = service.status;
 
     return Padding(
       padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ============================================================
-          // HEADER
-          // ============================================================
-
           Row(
             children: [
               Container(
@@ -43,7 +37,7 @@ class Needle3dAreaBody extends StatelessWidget {
               const SizedBox(width: 9),
               Expanded(
                 child: Text(
-                  t.t('needle3d_title'),
+                  localization.t('needle3d_title'),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
@@ -56,13 +50,7 @@ class Needle3dAreaBody extends StatelessWidget {
               ),
             ],
           ),
-
           const SizedBox(height: 7),
-
-          // ============================================================
-          // MACHINE POSITION
-          // ============================================================
-
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 10,
@@ -71,25 +59,23 @@ class Needle3dAreaBody extends StatelessWidget {
             decoration: BoxDecoration(
               color: HmiColors.panel,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: HmiColors.border,
-              ),
+              border: Border.all(color: HmiColors.border),
             ),
             child: Row(
               children: [
-                _positionItem(
-                  'X',
-                  s.x.toStringAsFixed(2),
+                _PositionItem(
+                  axis: 'X',
+                  value: status.x.toStringAsFixed(2),
                 ),
                 const SizedBox(width: 14),
-                _positionItem(
-                  'Y',
-                  s.y.toStringAsFixed(2),
+                _PositionItem(
+                  axis: 'Y',
+                  value: status.y.toStringAsFixed(2),
                 ),
                 const SizedBox(width: 14),
-                _positionItem(
-                  'Z',
-                  s.z.toStringAsFixed(2),
+                _PositionItem(
+                  axis: 'Z',
+                  value: status.z.toStringAsFixed(2),
                 ),
                 const Spacer(),
                 Container(
@@ -98,20 +84,22 @@ class Needle3dAreaBody extends StatelessWidget {
                     vertical: 4,
                   ),
                   decoration: BoxDecoration(
-                    color: s.needle
+                    color: status.needle
                         ? HmiColors.alarm.withValues(alpha: 0.15)
                         : HmiColors.ready.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
                     border: Border.all(
-                      color: s.needle
+                      color: status.needle
                           ? HmiColors.alarm.withValues(alpha: 0.45)
                           : HmiColors.ready.withValues(alpha: 0.35),
                     ),
                   ),
                   child: Text(
-                    s.needle ? 'NEEDLE DOWN' : 'NEEDLE UP',
+                    status.needle ? 'NEEDLE DOWN' : 'NEEDLE UP',
                     style: TextStyle(
-                      color: s.needle ? HmiColors.alarm : HmiColors.ready,
+                      color: status.needle
+                          ? HmiColors.alarm
+                          : HmiColors.ready,
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.5,
@@ -121,13 +109,7 @@ class Needle3dAreaBody extends StatelessWidget {
               ],
             ),
           ),
-
           const SizedBox(height: 10),
-
-          // ============================================================
-          // 3D WORKSPACE (PURE G-CODE & RASTER PREVIEW ONLY)
-          // ============================================================
-
           Expanded(
             child: Container(
               width: double.infinity,
@@ -141,13 +123,13 @@ class Needle3dAreaBody extends StatelessWidget {
               clipBehavior: Clip.antiAlias,
               child: CustomPaint(
                 painter: _Machine3dPainter(
-                  x: s.x,
-                  y: s.y,
-                  z: s.z,
-                  needleDown: s.needle,
-                  programPoints: svc.programPoints,
-                  pathIndex: s.pathIndex,
-                  running: s.state == MachineState.running,
+                  x: status.x,
+                  y: status.y,
+                  z: status.z,
+                  needleDown: status.needle,
+                  programPoints: service.programPoints,
+                  pathIndex: status.pathIndex,
+                  running: status.state == MachineState.running,
                 ),
                 child: const SizedBox.expand(),
               ),
@@ -157,8 +139,19 @@ class Needle3dAreaBody extends StatelessWidget {
       ),
     );
   }
+}
 
-  Widget _positionItem(String axis, String value) {
+class _PositionItem extends StatelessWidget {
+  final String axis;
+  final String value;
+
+  const _PositionItem({
+    required this.axis,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -203,16 +196,8 @@ class _Machine3dPainter extends CustomPainter {
     required this.running,
   });
 
-  // ============================================================
-  // MACHINE BED
-  // ============================================================
-
   static const double bedWidth = 600.0;
   static const double bedHeight = 400.0;
-
-  // ============================================================
-  // ISOMETRIC PROJECTION
-  // ============================================================
 
   Offset _project(
     double x,
@@ -221,24 +206,25 @@ class _Machine3dPainter extends CustomPainter {
     Size size,
     double scale,
   ) {
-    final cx = x - (bedWidth / 2);
-    final cy = y - (bedHeight / 2);
+    final centeredX = x - bedWidth / 2;
+    final centeredY = y - bedHeight / 2;
 
-    final isoX = (cx - cy) * 0.52 * scale;
-    final isoY = (cx + cy) * 0.25 * scale - z * 0.65 * scale;
+    final projectedX = (centeredX - centeredY) * 0.52 * scale;
+    final projectedY =
+        (centeredX + centeredY) * 0.25 * scale - z * 0.65 * scale;
 
     return Offset(
-      size.width * 0.5 + isoX,
-      size.height * 0.5 + isoY,
+      size.width * 0.5 + projectedX,
+      size.height * 0.5 + projectedY,
     );
   }
 
   double _calculateScale(Size size) {
-    final points = [
-      const Offset(0, 0),
-      const Offset(bedWidth, 0),
-      const Offset(bedWidth, bedHeight),
-      const Offset(0, bedHeight),
+    const corners = [
+      Offset(0, 0),
+      Offset(bedWidth, 0),
+      Offset(bedWidth, bedHeight),
+      Offset(0, bedHeight),
     ];
 
     double minX = double.infinity;
@@ -246,17 +232,17 @@ class _Machine3dPainter extends CustomPainter {
     double minY = double.infinity;
     double maxY = double.negativeInfinity;
 
-    for (final point in points) {
-      final cx = point.dx - (bedWidth / 2);
-      final cy = point.dy - (bedHeight / 2);
+    for (final corner in corners) {
+      final centeredX = corner.dx - bedWidth / 2;
+      final centeredY = corner.dy - bedHeight / 2;
 
-      final px = (cx - cy) * 0.52;
-      final py = (cx + cy) * 0.25;
+      final projectedX = (centeredX - centeredY) * 0.52;
+      final projectedY = (centeredX + centeredY) * 0.25;
 
-      minX = math.min(minX, px);
-      maxX = math.max(maxX, px);
-      minY = math.min(minY, py);
-      maxY = math.max(maxY, py);
+      minX = math.min(minX, projectedX);
+      maxX = math.max(maxX, projectedX);
+      minY = math.min(minY, projectedY);
+      maxY = math.max(maxY, projectedY);
     }
 
     final projectedWidth = maxX - minX;
@@ -264,167 +250,254 @@ class _Machine3dPainter extends CustomPainter {
 
     const padding = 40.0;
 
-    final availableWidth = math.max(1.0, size.width - padding * 2);
-    final availableHeight = math.max(1.0, size.height - padding * 2);
+    final availableWidth = math.max(
+      1.0,
+      size.width - padding * 2,
+    );
+    final availableHeight = math.max(
+      1.0,
+      size.height - padding * 2,
+    );
 
-    final scaleX = availableWidth / projectedWidth;
-    final scaleY = availableHeight / projectedHeight;
+    final widthScale = availableWidth / projectedWidth;
+    final heightScale = availableHeight / projectedHeight;
 
-    return math.min(scaleX, scaleY);
+    return math.min(widthScale, heightScale);
   }
-
-  // ============================================================
-  // PAINT
-  // ============================================================
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (size.width <= 0 || size.height <= 0) return;
+    if (size.width <= 0 || size.height <= 0) {
+      return;
+    }
 
     final scale = _calculateScale(size);
 
-    // ------------------------------------------------------------
-    // BACKGROUND GRID
-    // ------------------------------------------------------------
+    _drawGrid(canvas, size, scale);
+    _drawWorkArea(canvas, size, scale);
+    _drawProgramPath(canvas, size, scale);
+    _drawGantry(canvas, size, scale);
+    _drawCarriage(canvas, size, scale);
+    _drawNeedle(canvas, size, scale);
+    _drawNeedleShadow(canvas, size, scale);
+    _drawCenterCrosshair(canvas, size, scale);
+  }
 
+  void _drawGrid(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
     final gridPaint = Paint()
       ..color = HmiColors.border.withValues(alpha: 0.16)
       ..strokeWidth = 1;
 
     const gridStep = 50.0;
 
-    for (double gx = 0; gx <= bedWidth; gx += gridStep) {
-      final a = _project(gx, 0, 0, size, scale);
-      final b = _project(gx, bedHeight, 0, size, scale);
-      canvas.drawLine(a, b, gridPaint);
+    for (double x = 0; x <= bedWidth; x += gridStep) {
+      canvas.drawLine(
+        _project(x, 0, 0, size, scale),
+        _project(x, bedHeight, 0, size, scale),
+        gridPaint,
+      );
     }
 
-    for (double gy = 0; gy <= bedHeight; gy += gridStep) {
-      final a = _project(0, gy, 0, size, scale);
-      final b = _project(bedWidth, gy, 0, size, scale);
-      canvas.drawLine(a, b, gridPaint);
+    for (double y = 0; y <= bedHeight; y += gridStep) {
+      canvas.drawLine(
+        _project(0, y, 0, size, scale),
+        _project(bedWidth, y, 0, size, scale),
+        gridPaint,
+      );
     }
+  }
 
-    // ------------------------------------------------------------
-    // MACHINE BED / WORK AREA
-    // ------------------------------------------------------------
+  void _drawWorkArea(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    final corners = [
+      _project(0, 0, 0, size, scale),
+      _project(bedWidth, 0, 0, size, scale),
+      _project(bedWidth, bedHeight, 0, size, scale),
+      _project(0, bedHeight, 0, size, scale),
+    ];
 
-    final b0 = _project(0, 0, 0, size, scale);
-    final b1 = _project(bedWidth, 0, 0, size, scale);
-    final b2 = _project(bedWidth, bedHeight, 0, size, scale);
-    final b3 = _project(0, bedHeight, 0, size, scale);
-
-    final rugPath = Path()
-      ..moveTo(b0.dx, b0.dy)
-      ..lineTo(b1.dx, b1.dy)
-      ..lineTo(b2.dx, b2.dy)
-      ..lineTo(b3.dx, b3.dy)
+    final workAreaPath = Path()
+      ..moveTo(corners[0].dx, corners[0].dy)
+      ..lineTo(corners[1].dx, corners[1].dy)
+      ..lineTo(corners[2].dx, corners[2].dy)
+      ..lineTo(corners[3].dx, corners[3].dy)
       ..close();
 
-    final rugPaint = Paint()
+    final fillPaint = Paint()
       ..color = HmiColors.accent.withValues(alpha: 0.08)
       ..style = PaintingStyle.fill;
-
-    canvas.drawPath(rugPath, rugPaint);
 
     final borderPaint = Paint()
       ..color = HmiColors.gold.withValues(alpha: 0.75)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 2;
 
-    canvas.drawPath(rugPath, borderPaint);
-
     final cornerPaint = Paint()
       ..color = HmiColors.gold
       ..style = PaintingStyle.fill;
 
-    for (final point in [b0, b1, b2, b3]) {
-      canvas.drawCircle(point, 3, cornerPaint);
+    canvas.drawPath(workAreaPath, fillPaint);
+    canvas.drawPath(workAreaPath, borderPaint);
+
+    for (final corner in corners) {
+      canvas.drawCircle(corner, 3, cornerPaint);
+    }
+  }
+
+  void _drawProgramPath(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    if (programPoints.isEmpty) {
+      return;
     }
 
-    // ------------------------------------------------------------
-    // MULTI-COLOR RASTER & PROGRAM DRAWING PATH
-    // ------------------------------------------------------------
+    _drawFullProgramPath(canvas, size, scale);
+    _drawExecutedPath(canvas, size, scale);
+    _drawProgramPoints(canvas, size, scale);
+  }
 
-    if (programPoints.isNotEmpty) {
-      // 1. رسم مسار التنفيذ بالكامل
-      final pathPaint = Paint()
-        ..color = HmiColors.gold.withValues(alpha: 0.25)
-        ..strokeWidth = 1.0
-        ..style = PaintingStyle.stroke;
+  void _drawFullProgramPath(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    final pathPaint = Paint()
+      ..color = HmiColors.gold.withValues(alpha: 0.25)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
 
-      final path = Path();
-      for (int i = 0; i < programPoints.length; i++) {
-        final pt = programPoints[i];
-        final projected = _project(pt.x, pt.y, 0, size, scale);
-        if (i == 0) {
-          path.moveTo(projected.dx, projected.dy);
-        } else {
-          path.lineTo(projected.dx, projected.dy);
-        }
-      }
-      canvas.drawPath(path, pathPaint);
+    final path = Path();
 
-      // 2. رسم المسار الذي تم تنفيذه بالفعل حتى الآن
-      if (pathIndex > 0) {
-        final executedPaint = Paint()
-          ..color = HmiColors.ready
-          ..strokeWidth = 1.8
-          ..style = PaintingStyle.stroke;
+    for (int i = 0; i < programPoints.length; i++) {
+      final projected = _projectPoint(
+        programPoints[i],
+        size,
+        scale,
+      );
 
-        final executedPath = Path();
-        final maxIdx = math.min(pathIndex, programPoints.length - 1);
-        for (int i = 0; i <= maxIdx; i++) {
-          final pt = programPoints[i];
-          final projected = _project(pt.x, pt.y, 0, size, scale);
-          if (i == 0) {
-            executedPath.moveTo(projected.dx, projected.dy);
-          } else {
-            executedPath.lineTo(projected.dx, projected.dy);
-          }
-        }
-        canvas.drawPath(executedPath, executedPaint);
-      }
-
-      // 3. رسم النقاط بدعم تمايز الألوان (Multi-color Point Rendering)
-      for (int i = 0; i < programPoints.length; i++) {
-        final pt = programPoints[i];
-        final projected = _project(pt.x, pt.y, 0, size, scale);
-        final isCurrent = i == pathIndex;
-
-        // فحص لون النقطة من كائن TuftPoint (اللون الأساسي أو لون الخلفية/اللون الثاني)
-        final dynamic dynamicPoint = pt;
-        final int colorIndex = (dynamicPoint.colorIndex is int) ? dynamicPoint.colorIndex : 0;
-
-        Color pointColor;
-        if (colorIndex == 1) {
-          // اللون الثاني (تظليل الخلفية) - يعرض باللون الرملي/الأبيض المائل
-          pointColor = HmiColors.sand.withValues(alpha: 0.85);
-        } else {
-          // اللون الأول (الشعار / العنصر الرئيسي) - يعرض باللون الذهبي/الأزرق
-          pointColor = HmiColors.accent;
-        }
-
-        final pPaint = Paint()
-          ..color = isCurrent ? HmiColors.alarm : pointColor
-          ..style = PaintingStyle.fill;
-
-        canvas.drawCircle(
-          projected,
-          isCurrent ? 4.5 : (colorIndex == 1 ? 1.2 : 1.8),
-          pPaint,
-        );
+      if (i == 0) {
+        path.moveTo(projected.dx, projected.dy);
+      } else {
+        path.lineTo(projected.dx, projected.dy);
       }
     }
 
-    // ------------------------------------------------------------
-    // GANTRY
-    // ------------------------------------------------------------
+    canvas.drawPath(path, pathPaint);
+  }
 
+  void _drawExecutedPath(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    if (pathIndex <= 0) {
+      return;
+    }
+
+    final executedPaint = Paint()
+      ..color = HmiColors.ready
+      ..strokeWidth = 1.8
+      ..style = PaintingStyle.stroke;
+
+    final executedPath = Path();
+    final maxIndex = math.min(
+      pathIndex,
+      programPoints.length - 1,
+    );
+
+    for (int i = 0; i <= maxIndex; i++) {
+      final projected = _projectPoint(
+        programPoints[i],
+        size,
+        scale,
+      );
+
+      if (i == 0) {
+        executedPath.moveTo(projected.dx, projected.dy);
+      } else {
+        executedPath.lineTo(projected.dx, projected.dy);
+      }
+    }
+
+    canvas.drawPath(executedPath, executedPaint);
+  }
+
+  void _drawProgramPoints(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    for (int i = 0; i < programPoints.length; i++) {
+      final point = programPoints[i];
+      final projected = _projectPoint(point, size, scale);
+      final isCurrent = i == pathIndex;
+      final colorIndex = point.colorOrder ?? 0;
+
+      final pointColor = colorIndex == 1
+          ? HmiColors.sand.withValues(alpha: 0.85)
+          : HmiColors.accent;
+
+      final pointPaint = Paint()
+        ..color = isCurrent ? HmiColors.alarm : pointColor
+        ..style = PaintingStyle.fill;
+
+      canvas.drawCircle(
+        projected,
+        isCurrent
+            ? 4.5
+            : colorIndex == 1
+                ? 1.2
+                : 1.8,
+        pointPaint,
+      );
+    }
+  }
+
+  Offset _projectPoint(
+    TuftPoint point,
+    Size size,
+    double scale,
+  ) {
+    return _project(
+      point.x,
+      point.y,
+      0,
+      size,
+      scale,
+    );
+  }
+
+  void _drawGantry(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
     final currentY = y.clamp(0.0, bedHeight);
 
-    final gantryLeft = _project(0, currentY, 40, size, scale);
-    final gantryRight = _project(bedWidth, currentY, 40, size, scale);
+    final left = _project(
+      0,
+      currentY,
+      40,
+      size,
+      scale,
+    );
+
+    final right = _project(
+      bedWidth,
+      currentY,
+      40,
+      size,
+      scale,
+    );
 
     final gantryPaint = Paint()
       ..color = HmiColors.gold
@@ -432,77 +505,132 @@ class _Machine3dPainter extends CustomPainter {
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
-    canvas.drawLine(gantryLeft, gantryRight, gantryPaint);
+    canvas.drawLine(left, right, gantryPaint);
+  }
 
-    // ------------------------------------------------------------
-    // CARRIAGE
-    // ------------------------------------------------------------
-
+  void _drawCarriage(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
     final currentX = x.clamp(0.0, bedWidth);
+    final currentY = y.clamp(0.0, bedHeight);
 
-    final carriage = _project(currentX, currentY, 55, size, scale);
+    final carriage = _project(
+      currentX,
+      currentY,
+      55,
+      size,
+      scale,
+    );
+
+    final carriagePaint = Paint()
+      ..color = HmiColors.sand
+      ..style = PaintingStyle.fill;
 
     canvas.drawCircle(
       carriage,
       8,
-      Paint()
-        ..color = HmiColors.sand
-        ..style = PaintingStyle.fill,
+      carriagePaint,
     );
+  }
 
-    // ------------------------------------------------------------
-    // NEEDLE
-    // ------------------------------------------------------------
-
+  void _drawNeedle(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    final currentX = x.clamp(0.0, bedWidth);
+    final currentY = y.clamp(0.0, bedHeight);
     final needleZ = needleDown ? 0.0 : z.clamp(0.0, 25.0);
 
-    final needleTip = _project(currentX, currentY, needleZ, size, scale);
+    final carriage = _project(
+      currentX,
+      currentY,
+      55,
+      size,
+      scale,
+    );
+
+    final needleTip = _project(
+      currentX,
+      currentY,
+      needleZ,
+      size,
+      scale,
+    );
+
+    final needleColor =
+        needleDown ? HmiColors.alarm : HmiColors.dro;
 
     final needlePaint = Paint()
-      ..color = needleDown ? HmiColors.alarm : HmiColors.dro
+      ..color = needleColor
       ..strokeWidth = 3
       ..strokeCap = StrokeCap.round;
 
-    canvas.drawLine(carriage, needleTip, needlePaint);
+    canvas.drawLine(
+      carriage,
+      needleTip,
+      needlePaint,
+    );
 
     canvas.drawCircle(
       needleTip,
       4,
-      Paint()..color = needleDown ? HmiColors.alarm : HmiColors.dro,
+      Paint()..color = needleColor,
     );
+  }
 
-    // ------------------------------------------------------------
-    // NEEDLE SHADOW
-    // ------------------------------------------------------------
+  void _drawNeedleShadow(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    final currentX = x.clamp(0.0, bedWidth);
+    final currentY = y.clamp(0.0, bedHeight);
 
-    final shadow = _project(currentX, currentY, 0, size, scale);
+    final shadow = _project(
+      currentX,
+      currentY,
+      0,
+      size,
+      scale,
+    );
 
     canvas.drawCircle(
       shadow,
       7,
       Paint()..color = Colors.black.withValues(alpha: 0.28),
     );
+  }
 
-    // ------------------------------------------------------------
-    // CENTER CROSSHAIR
-    // ------------------------------------------------------------
+  void _drawCenterCrosshair(
+    Canvas canvas,
+    Size size,
+    double scale,
+  ) {
+    final center = _project(
+      bedWidth / 2,
+      bedHeight / 2,
+      0,
+      size,
+      scale,
+    );
 
-    final center = _project(bedWidth / 2, bedHeight / 2, 0, size, scale);
-
-    final crossPaint = Paint()
+    final crosshairPaint = Paint()
       ..color = HmiColors.textMute.withValues(alpha: 0.35)
       ..strokeWidth = 1;
 
     canvas.drawLine(
       Offset(center.dx - 8, center.dy),
       Offset(center.dx + 8, center.dy),
-      crossPaint,
+      crosshairPaint,
     );
 
     canvas.drawLine(
       Offset(center.dx, center.dy - 8),
       Offset(center.dx, center.dy + 8),
-      crossPaint,
+      crosshairPaint,
     );
   }
 
@@ -586,13 +714,13 @@ class ErrorsAreaBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final t = context.watch<LocaleController>().l10n;
+    final localization = context.watch<LocaleController>().l10n;
 
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
         Text(
-          t.t('errors_title'),
+          localization.t('errors_title'),
           style: const TextStyle(
             color: HmiColors.gold,
             fontSize: 18,
@@ -600,7 +728,7 @@ class ErrorsAreaBody extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 12),
-        for (final e in _catalog)
+        for (final error in _catalog)
           Card(
             color: HmiColors.panelAlt,
             margin: const EdgeInsets.only(bottom: 8),
@@ -608,14 +736,14 @@ class ErrorsAreaBody extends StatelessWidget {
               iconColor: HmiColors.gold,
               collapsedIconColor: HmiColors.textDim,
               title: Text(
-                '${e.$1}  ${e.$2}',
+                '${error.$1}  ${error.$2}',
                 style: const TextStyle(
                   color: HmiColors.text,
                   fontWeight: FontWeight.w700,
                 ),
               ),
               subtitle: Text(
-                e.$3,
+                error.$3,
                 style: const TextStyle(
                   color: HmiColors.textDim,
                   fontSize: 12,
@@ -623,9 +751,14 @@ class ErrorsAreaBody extends StatelessWidget {
               ),
               children: [
                 Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+                  padding: const EdgeInsets.fromLTRB(
+                    16,
+                    0,
+                    16,
+                    14,
+                  ),
                   child: Text(
-                    e.$4,
+                    error.$4,
                     style: const TextStyle(
                       color: HmiColors.sand,
                     ),
@@ -647,22 +780,22 @@ class PlcAreaBody extends StatefulWidget {
 }
 
 class _PlcAreaBodyState extends State<PlcAreaBody> {
-  final _name = TextEditingController();
-  final _code = TextEditingController(text: 'M8');
-  final _note = TextEditingController();
+  final _nameController = TextEditingController();
+  final _codeController = TextEditingController(text: 'M8');
+  final _noteController = TextEditingController();
 
   @override
   void dispose() {
-    _name.dispose();
-    _code.dispose();
-    _note.dispose();
+    _nameController.dispose();
+    _codeController.dispose();
+    _noteController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final svc = context.watch<MachineService>();
-    final t = context.watch<LocaleController>().l10n;
+    final service = context.watch<MachineService>();
+    final localization = context.watch<LocaleController>().l10n;
 
     return Padding(
       padding: const EdgeInsets.all(16),
@@ -670,7 +803,7 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            t.t('plc_title'),
+            localization.t('plc_title'),
             style: const TextStyle(
               color: HmiColors.gold,
               fontSize: 18,
@@ -679,69 +812,45 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'M8/M9 = needle engage/retract (embroidery). Add custom M-codes for your PLC map.',
-            style: TextStyle(color: HmiColors.textDim, fontSize: 12),
+            'M8/M9 = needle engage/retract (embroidery). '
+            'Add custom M-codes for your PLC map.',
+            style: TextStyle(
+              color: HmiColors.textDim,
+              fontSize: 12,
+            ),
           ),
           const SizedBox(height: 12),
           Expanded(
             child: ListView.builder(
-              itemCount: svc.plcMacros.length + 1,
-              itemBuilder: (context, i) {
-                if (i == svc.plcMacros.length) {
-                  final active = svc.activeMachine;
-                  return Card(
-                    color: HmiColors.panel,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: const BorderSide(color: HmiColors.accent),
-                    ),
-                    child: ListTile(
-                      leading: Icon(
-                        Icons.wifi_tethering,
-                        color: svc.runtimeLinked
-                            ? HmiColors.ready
-                            : HmiColors.textDim,
-                      ),
-                      title: Text(
-                        t.t('connect_to_machine'),
-                        style: const TextStyle(
-                          color: HmiColors.text,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      subtitle: Text(
-                        '${active.name} — ${active.host}:${active.port}'
-                        '${svc.runtimeLinked ? '  ·  LINKED' : ''}',
-                        style: const TextStyle(color: HmiColors.textDim),
-                      ),
-                      trailing: ElevatedButton(
-                        onPressed: () => Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const MachinesScreen(),
-                          ),
-                        ),
-                        child: Text(t.t('machines_title')),
-                      ),
-                    ),
+              itemCount: service.plcMacros.length + 1,
+              itemBuilder: (context, index) {
+                if (index == service.plcMacros.length) {
+                  return _MachineConnectionCard(
+                    service: service,
+                    localization: localization,
                   );
                 }
-                final m = svc.plcMacros[i];
+
+                final macro = service.plcMacros[index];
+
                 return Card(
                   color: HmiColors.panelAlt,
                   child: ListTile(
                     title: Text(
-                      m.name,
+                      macro.name,
                       style: const TextStyle(
                         color: HmiColors.text,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                     subtitle: Text(
-                      '${m.code}  —  ${m.note}',
-                      style: const TextStyle(color: HmiColors.textDim),
+                      '${macro.code}  —  ${macro.note}',
+                      style: const TextStyle(
+                        color: HmiColors.textDim,
+                      ),
                     ),
                     trailing: ElevatedButton(
-                      onPressed: () => svc.runPlcMacro(m),
+                      onPressed: () => service.runPlcMacro(macro),
                       child: const Text('RUN'),
                     ),
                   ),
@@ -754,61 +863,131 @@ class _PlcAreaBodyState extends State<PlcAreaBody> {
             children: [
               Expanded(
                 child: TextField(
-                  controller: _name,
+                  controller: _nameController,
                   decoration: const InputDecoration(
                     labelText: 'Name',
                     isDense: true,
                     border: OutlineInputBorder(),
                   ),
-                  style: const TextStyle(color: HmiColors.text),
+                  style: const TextStyle(
+                    color: HmiColors.text,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               SizedBox(
                 width: 100,
                 child: TextField(
-                  controller: _code,
+                  controller: _codeController,
                   decoration: const InputDecoration(
                     labelText: 'M / G',
                     isDense: true,
                     border: OutlineInputBorder(),
                   ),
-                  style: const TextStyle(color: HmiColors.gold),
+                  style: const TextStyle(
+                    color: HmiColors.gold,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: TextField(
-                  controller: _note,
+                  controller: _noteController,
                   decoration: const InputDecoration(
                     labelText: 'Note',
                     isDense: true,
                     border: OutlineInputBorder(),
                   ),
-                  style: const TextStyle(color: HmiColors.text),
+                  style: const TextStyle(
+                    color: HmiColors.text,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
               ElevatedButton(
                 onPressed: () {
-                  if (_name.text.trim().isEmpty || _code.text.trim().isEmpty) {
+                  final name = _nameController.text.trim();
+                  final code = _codeController.text.trim();
+
+                  if (name.isEmpty || code.isEmpty) {
                     return;
                   }
-                  svc.addPlcMacro(
+
+                  service.addPlcMacro(
                     PlcMacro(
-                      name: _name.text.trim(),
-                      code: _code.text.trim().toUpperCase(),
-                      note: _note.text.trim(),
+                      name: name,
+                      code: code.toUpperCase(),
+                      note: _noteController.text.trim(),
                     ),
                   );
-                  _name.clear();
-                  _note.clear();
+
+                  _nameController.clear();
+                  _noteController.clear();
                 },
                 child: const Text('ADD'),
               ),
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _MachineConnectionCard extends StatelessWidget {
+  final MachineService service;
+  final L10n localization;
+
+  const _MachineConnectionCard({
+    required this.service,
+    required this.localization,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final machine = service.activeMachine;
+
+    return Card(
+      color: HmiColors.panel,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(
+          color: HmiColors.accent,
+        ),
+      ),
+      child: ListTile(
+        leading: Icon(
+          Icons.wifi_tethering,
+          color: service.runtimeLinked
+              ? HmiColors.ready
+              : HmiColors.textDim,
+        ),
+        title: Text(
+          localization.t('connect_to_machine'),
+          style: const TextStyle(
+            color: HmiColors.text,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        subtitle: Text(
+          '${machine.name} — ${machine.host}:${machine.port}'
+          '${service.runtimeLinked ? '  ·  LINKED' : ''}',
+          style: const TextStyle(
+            color: HmiColors.textDim,
+          ),
+        ),
+        trailing: ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const MachinesScreen(),
+              ),
+            );
+          },
+          child: Text(
+            localization.t('machines_title'),
+          ),
+        ),
       ),
     );
   }

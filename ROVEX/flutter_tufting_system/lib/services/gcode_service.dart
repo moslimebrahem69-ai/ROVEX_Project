@@ -1,100 +1,269 @@
 import 'dart:typed_data';
+
 import 'package:image/image.dart' as img;
 
+/// Service responsible for preparing images and generating G-code.
 class GCodeService {
+  // ---------------------------------------------------------------------------
+  // Image configuration
+  // ---------------------------------------------------------------------------
+
+  static const int _targetImageWidth = 1500;
+  static const int _targetImageHeight = 2000;
+
+  // ---------------------------------------------------------------------------
+  // Machine/work-area configuration
+  // ---------------------------------------------------------------------------
+
+  static const double _workWidthMm = 1500.0;
+  static const double _workHeightMm = 2000.0;
+
+  static const double _safeZ = 5.0;
+  static const double _cutZ = -2.0;
+
+  static const int _rasterStep = 8;
+
+  static const int _spindleSpeed = 1000;
+  static const int _rapidFeedRate = 3000;
+  static const int _safeZFeedRate = 500;
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
+  /// Decodes the image, crops it to the required aspect ratio,
+  /// then resizes it to the target resolution.
   static img.Image resizeToTargetRatio(Uint8List imageBytes) {
-    img.Image? original = img.decodeImage(imageBytes);
-    if (original == null) throw Exception("Failed to decode image");
+    final original = img.decodeImage(imageBytes);
 
-    int targetWidth = 1500;
-    int targetHeight = 2000;
-    double targetAspect = targetWidth / targetHeight;
-
-    int cropWidth = original.width;
-    int cropHeight = original.height;
-    int offsetX = 0;
-    int offsetY = 0;
-
-    if (original.width / original.height > targetAspect) {
-      cropWidth = (original.height * targetAspect).round();
-      offsetX = ((original.width - cropWidth) / 2).round();
-    } else {
-      cropHeight = (original.width / targetAspect).round();
-      offsetY = ((original.height - cropHeight) / 2).round();
+    if (original == null) {
+      throw Exception('Failed to decode image');
     }
 
-    img.Image cropped = img.copyCrop(
+    final cropRect = _calculateCenteredCrop(
+      imageWidth: original.width,
+      imageHeight: original.height,
+      targetWidth: _targetImageWidth,
+      targetHeight: _targetImageHeight,
+    );
+
+    final cropped = img.copyCrop(
       original,
-      x: offsetX,
-      y: offsetY,
-      width: cropWidth,
-      height: cropHeight,
+      x: cropRect.x,
+      y: cropRect.y,
+      width: cropRect.width,
+      height: cropRect.height,
     );
 
     return img.copyResize(
       cropped,
-      width: targetWidth,
-      height: targetHeight,
+      width: _targetImageWidth,
+      height: _targetImageHeight,
       interpolation: img.Interpolation.cubic,
     );
   }
 
+  /// Generates G-code for the complete image using a color-grouped
+  /// raster-style toolpath.
   static String generateFullImageGCode(img.Image image) {
-    StringBuffer gcode = StringBuffer();
+    final buffer = StringBuffer();
 
-    double targetWidthMm = 1500.0;
-    double targetHeightMm = 2000.0;
+    final scaleX = _workWidthMm / image.width;
+    final scaleY = _workHeightMm / image.height;
 
-    double scaleX = targetWidthMm / image.width;
-    double scaleY = targetHeightMm / image.height;
+    _writeHeader(buffer);
 
-    gcode.writeln("; FULL CARPET RASTER SCAN 1.5m x 2m");
-    gcode.writeln("G21");
-    gcode.writeln("G90");
-    gcode.writeln("G0 Z5 F500");
+    final colorGroups = _extractColorGroups(
+      image,
+      scaleX: scaleX,
+      scaleY: scaleY,
+    );
 
-    int step = 8;
-    Map<int, List<Map<String, double>>> colorGroups = {};
+    _writeColorGroups(buffer, colorGroups);
 
-    for (int y = 0; y < image.height; y += step) {
-      for (int x = 0; x < image.width; x += step) {
-        img.Pixel pixel = image.getPixel(x, y);
+    _writeFooter(buffer);
 
-        int r = (pixel.r / 64).round() * 64;
-        int g = (pixel.g / 64).round() * 64;
-        int b = (pixel.b / 64).round() * 64;
-        int colorKey = (r << 16) | (g << 8) | b;
+    return buffer.toString();
+  }
 
-        double posX = x * scaleX;
-        double posY = y * scaleY;
+  // ---------------------------------------------------------------------------
+  // Image processing
+  // ---------------------------------------------------------------------------
 
-        if (!colorGroups.containsKey(colorKey)) {
-          colorGroups[colorKey] = [];
-        }
+  static _CropRect _calculateCenteredCrop({
+    required int imageWidth,
+    required int imageHeight,
+    required int targetWidth,
+    required int targetHeight,
+  }) {
+    final targetAspectRatio = targetWidth / targetHeight;
+    final imageAspectRatio = imageWidth / imageHeight;
 
-        colorGroups[colorKey]!.add({'x': posX, 'y': posY});
+    if (imageAspectRatio > targetAspectRatio) {
+      final cropWidth = (imageHeight * targetAspectRatio).round();
+
+      return _CropRect(
+        x: ((imageWidth - cropWidth) / 2).round(),
+        y: 0,
+        width: cropWidth,
+        height: imageHeight,
+      );
+    }
+
+    final cropHeight = (imageWidth / targetAspectRatio).round();
+
+    return _CropRect(
+      x: 0,
+      y: ((imageHeight - cropHeight) / 2).round(),
+      width: imageWidth,
+      height: cropHeight,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Color extraction
+  // ---------------------------------------------------------------------------
+
+  static Map<int, List<_GCodePoint>> _extractColorGroups(
+    img.Image image, {
+    required double scaleX,
+    required double scaleY,
+  }) {
+    final groups = <int, List<_GCodePoint>>{};
+
+    for (var y = 0; y < image.height; y += _rasterStep) {
+      for (var x = 0; x < image.width; x += _rasterStep) {
+        final pixel = image.getPixel(x, y);
+        final color = _quantizeColor(pixel);
+
+        groups
+            .putIfAbsent(color, () => <_GCodePoint>[])
+            .add(
+              _GCodePoint(
+                x: x * scaleX,
+                y: y * scaleY,
+              ),
+            );
       }
     }
 
-    int colorIndex = 1;
-    colorGroups.forEach((colorHex, points) {
-      gcode.writeln("(--- COLOR $colorIndex START ---)");
-      gcode.writeln("M0 ; Pause for color change $colorIndex");
-      gcode.writeln("M3 S1000");
+    return groups;
+  }
 
-      for (var pt in points) {
-        gcode.writeln("G0 X${pt['x']!.toStringAsFixed(2)} Y${pt['y']!.toStringAsFixed(2)}");
-        gcode.writeln("G1 Z-2.00 F3000");
-        gcode.writeln("G0 Z5.00 F3000");
-      }
+  /// Reduces the image color depth to keep the number of color groups
+  /// manageable for G-code generation.
+  static int _quantizeColor(img.Pixel pixel) {
+    final red = _quantizeChannel(pixel.r);
+    final green = _quantizeChannel(pixel.g);
+    final blue = _quantizeChannel(pixel.b);
+
+    return (red << 16) | (green << 8) | blue;
+  }
+
+  static int _quantizeChannel(num value) {
+    return (value / 64).round() * 64;
+  }
+
+  // ---------------------------------------------------------------------------
+  // G-code generation
+  // ---------------------------------------------------------------------------
+
+  static void _writeHeader(StringBuffer buffer) {
+    buffer
+      ..writeln('; FULL CARPET RASTER SCAN 1.5m x 2m')
+      ..writeln('G21')
+      ..writeln('G90')
+      ..writeln('G0 Z${_format(_safeZ)} F$_safeZFeedRate');
+  }
+
+  static void _writeColorGroups(
+    StringBuffer buffer,
+    Map<int, List<_GCodePoint>> colorGroups,
+  ) {
+    var colorIndex = 1;
+
+    for (final points in colorGroups.values) {
+      _writeColorGroup(
+        buffer,
+        colorIndex: colorIndex,
+        points: points,
+      );
 
       colorIndex++;
-    });
-
-    gcode.writeln("G0 Z10 F500");
-    gcode.writeln("G0 X0 Y0");
-    gcode.writeln("M5");
-
-    return gcode.toString();
+    }
   }
+
+  static void _writeColorGroup(
+    StringBuffer buffer, {
+    required int colorIndex,
+    required List<_GCodePoint> points,
+  }) {
+    buffer
+      ..writeln('(--- COLOR $colorIndex START ---)')
+      ..writeln('M0 ; Pause for color change $colorIndex')
+      ..writeln('M3 S$_spindleSpeed');
+
+    for (final point in points) {
+      _writePoint(buffer, point);
+    }
+  }
+
+  static void _writePoint(
+    StringBuffer buffer,
+    _GCodePoint point,
+  ) {
+    buffer
+      ..writeln(
+        'G0 X${_format(point.x)} Y${_format(point.y)}',
+      )
+      ..writeln(
+        'G1 Z${_format(_cutZ)} F$_rapidFeedRate',
+      )
+      ..writeln(
+        'G0 Z${_format(_safeZ)} F$_rapidFeedRate',
+      );
+  }
+
+  static void _writeFooter(StringBuffer buffer) {
+    buffer
+      ..writeln('G0 Z${_format(10.0)} F$_safeZFeedRate')
+      ..writeln('G0 X0 Y0')
+      ..writeln('M5');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Formatting
+  // ---------------------------------------------------------------------------
+
+  static String _format(double value) {
+    return value.toStringAsFixed(2);
+  }
+}
+
+// =============================================================================
+// Internal models
+// =============================================================================
+
+class _GCodePoint {
+  final double x;
+  final double y;
+
+  const _GCodePoint({
+    required this.x,
+    required this.y,
+  });
+}
+
+class _CropRect {
+  final int x;
+  final int y;
+  final int width;
+  final int height;
+
+  const _CropRect({
+    required this.x,
+    required this.y,
+    required this.width,
+    required this.height,
+  });
 }

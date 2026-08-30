@@ -15,7 +15,7 @@ class SampleProject {
 
   String get blurb => blurbEn;
 
-  static const catalog = <SampleProject>[
+  static const List<SampleProject> catalog = [
     SampleProject(
       id: 'cartouche_dtu',
       titleEn: 'DTU Cartouche',

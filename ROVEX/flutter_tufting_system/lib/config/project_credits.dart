@@ -1,17 +1,12 @@
-import 'branding.dart';
-
-/// Academic credits shown on the splash screen.
-/// Edit supervisor name here if needed.
 class ProjectCredits {
-  ProjectCredits._();
+  const ProjectCredits._();
 
-  static const supervisorTitleAr = 'تحت إشراف';
-  static const supervisorNameAr = 'أ.د. المشرف الأكاديمي';
-  static const supervisorNameEn = 'Prof. Academic Supervisor';
+  static const String projectName = 'ROVEX';
+  static const String version = '1.0.0';
+  static const String description =
+      'Industrial CNC/HMI control application.';
 
-  static const deanTitleAr = 'عميد الكلية';
-  static const deanNameAr = 'أ.د. أحمد الصاوي';
-  static const deanNameEn = 'Dr. Ahmed Al-Sawy';
-
-  static const institutionAr = Branding.appName;
+  // Project credits
+  static const String deanNameAr = '';
+  static const String supervisorTitleAr = '';
 }

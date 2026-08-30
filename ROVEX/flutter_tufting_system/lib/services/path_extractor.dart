@@ -5,11 +5,9 @@ import 'package:image/image.dart' as img;
 
 import '../models/design.dart';
 
-
 class PathExtractor {
   static const int _maxSide = 420;
   static const int _maxColors = 8;
-
   static const int _alphaThreshold = 10;
   static const int _grayscaleTolerance = 12;
   static const int _colorMergeDist = 46;
@@ -67,8 +65,11 @@ class PathExtractor {
       );
     }
 
-    final visible = Uint8List(w * h);
+    // ------------------------------------------------------------
+    // Visible pixels
+    // ------------------------------------------------------------
 
+    final visible = Uint8List(w * h);
     var visibleCount = 0;
 
     for (var y = 0; y < h; y++) {
@@ -89,6 +90,10 @@ class PathExtractor {
       );
     }
 
+    // ------------------------------------------------------------
+    // Background
+    // ------------------------------------------------------------
+
     final background = _estimateBackgroundColor(
       src,
       visible,
@@ -97,7 +102,6 @@ class PathExtractor {
     );
 
     final foreground = Uint8List(w * h);
-
     var foregroundCount = 0;
 
     for (var y = 0; y < h; y++) {
@@ -125,6 +129,10 @@ class PathExtractor {
         colors: [],
       );
     }
+
+    // ------------------------------------------------------------
+    // Detect grayscale
+    // ------------------------------------------------------------
 
     final grayscale = _isMostlyGrayscale(
       src,
@@ -155,21 +163,31 @@ class PathExtractor {
       );
     }
 
-    final labels = Int16List(w * h)..fillRange(0, w * h, -1);
+    // ------------------------------------------------------------
+    // Assign every foreground pixel to a palette color
+    // ------------------------------------------------------------
+
+    final labels = Int16List(w * h)
+      ..fillRange(
+        0,
+        w * h,
+        -1,
+      );
 
     final areaByColor = List<int>.filled(
       palette.length,
       0,
     );
 
-    final grayscaleThreshold = grayscale && palette.length > 1
-        ? _otsuThreshold(
-            src,
-            foreground,
-            w,
-            h,
-          )
-        : -1;
+    final grayscaleThreshold =
+        grayscale && palette.length > 1
+            ? _otsuThreshold(
+                src,
+                foreground,
+                w,
+                h,
+              )
+            : -1;
 
     for (var y = 0; y < h; y++) {
       for (var x = 0; x < w; x++) {
@@ -181,7 +199,8 @@ class PathExtractor {
 
         final pixel = src.getPixel(x, y);
 
-        final rgb = (pixel.r.toInt() << 16) |
+        final rgb =
+            (pixel.r.toInt() << 16) |
             (pixel.g.toInt() << 8) |
             pixel.b.toInt();
 
@@ -212,6 +231,10 @@ class PathExtractor {
       }
     }
 
+    // ------------------------------------------------------------
+    // Process largest regions first
+    // ------------------------------------------------------------
+
     final colorOrder = List<int>.generate(
       palette.length,
       (index) => index,
@@ -224,7 +247,10 @@ class PathExtractor {
     final pxPerMmX = w / workWidthMm;
     final pxPerMmY = h / workHeightMm;
 
-    final safePitchMm = pitchMm.clamp(1.0, 5.0);
+    final safePitchMm = pitchMm.clamp(
+      1.0,
+      5.0,
+    );
 
     final averagePxPerMm =
         (pxPerMmX + pxPerMmY) / 2.0;
@@ -234,75 +260,158 @@ class PathExtractor {
       safePitchMm * averagePxPerMm,
     );
 
-    
-   final groups = <ColorGroup>[];
-final allPoints = <TuftPoint>[];
+    // ------------------------------------------------------------
+    // Build paths
+    // ------------------------------------------------------------
 
-var order = 0;
+    final groups = <ColorGroup>[];
+    final allPoints = <TuftPoint>[];
 
-for (final paletteIndex in colorOrder) {
-  final area = areaByColor[paletteIndex];
+    var order = 0;
 
-  if (area <= 0) {
-    continue;
-  }
+    for (final paletteIndex in colorOrder) {
+      final area = areaByColor[paletteIndex];
 
-  final colorMask = Uint8List(w * h);
+      if (area <= 0) {
+        continue;
+      }
 
-  for (var index = 0; index < w * h; index++) {
-    if (labels[index] == paletteIndex) {
-      colorMask[index] = 1;
+      final colorMask = Uint8List(w * h);
+
+      for (var index = 0; index < w * h; index++) {
+        if (labels[index] == paletteIndex) {
+          colorMask[index] = 1;
+        }
+      }
+
+      final regionPoints = _pathForColorMask(
+        colorMask,
+        w,
+        h,
+        workWidthMm,
+        workHeightMm,
+        pitchPx,
+      );
+
+      if (regionPoints.isEmpty) {
+        continue;
+      }
+
+      order++;
+
+      final paletteColor =
+          0xFF000000 | palette[paletteIndex];
+
+      var regionPointCount = 0;
+
+      // ----------------------------------------------------------
+      // IMPORTANT:
+      // Preserve the REAL source color for every generated point.
+      //
+      // This prevents the preview from becoming one flat color.
+      // Every point gets the RGB value sampled from the original
+      // image at its actual position.
+      // ----------------------------------------------------------
+
+      for (final point in regionPoints) {
+        final sourcePixel = _pointToSourcePixel(
+          point,
+          src,
+          workWidthMm,
+          workHeightMm,
+        );
+
+        final realColor = sourcePixel != null
+            ? _pixelToArgb(sourcePixel)
+            : paletteColor;
+
+        allPoints.add(
+          TuftPoint(
+            x: point.x,
+            y: point.y,
+            colorValue: realColor,
+            colorOrder: order,
+          ),
+        );
+
+        regionPointCount++;
+      }
+
+      groups.add(
+        ColorGroup(
+          colorValue: paletteColor,
+          order: order,
+          pointCount: regionPointCount,
+        ),
+      );
     }
-  }
 
-  final regionPoints = _pathForColorMask(
-    colorMask,
-    w,
-    h,
-    workWidthMm,
-    workHeightMm,
-    pitchPx,
-  );
-
-  if (regionPoints.isEmpty) {
-    continue;
-  }
-
-  order++;
-
-  final argb = 0xFF000000 | palette[paletteIndex];
-
-  for (final point in regionPoints) {
-    allPoints.add(
-      TuftPoint(
-        x: point.x,
-        y: point.y,
-        colorValue: argb,
-        colorOrder: order,
-      ),
-    );
-  }
-
-  groups.add(
-    ColorGroup(
-      colorValue: argb,
-      order: order,
-      pointCount: regionPoints.length,
-    ),
-  );
-}
-
-    final resultPoints = maxPoints > 0 && allPoints.length > maxPoints
-        ? _limitPoints(
-            allPoints,
-            maxPoints,
-          )
-        : allPoints;
+    final resultPoints =
+        maxPoints > 0 &&
+                allPoints.length > maxPoints
+            ? _limitPoints(
+                allPoints,
+                maxPoints,
+              )
+            : allPoints;
 
     return ExtractResult(
       points: resultPoints,
       colors: groups,
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Source color sampling
+  // ---------------------------------------------------------------------------
+
+  static img.Pixel? _pointToSourcePixel(
+    TuftPoint point,
+    img.Image src,
+    double workWidthMm,
+    double workHeightMm,
+  ) {
+    if (src.width < 2 || src.height < 2) {
+      return null;
+    }
+
+    final normalizedX =
+        (point.x / workWidthMm).clamp(
+      0.0,
+      1.0,
+    );
+
+    final normalizedY =
+        (1.0 - point.y / workHeightMm).clamp(
+      0.0,
+      1.0,
+    );
+
+    final px = (normalizedX * (src.width - 1))
+        .round()
+        .clamp(
+          0,
+          src.width - 1,
+        );
+
+    final py = (normalizedY * (src.height - 1))
+        .round()
+        .clamp(
+          0,
+          src.height - 1,
+        );
+
+    return src.getPixel(
+      px,
+      py,
+    );
+  }
+
+  static int _pixelToArgb(img.Pixel pixel) {
+    return 0xFF000000 |
+        (pixel.r.toInt() << 16) |
+        (pixel.g.toInt() << 8) |
+        pixel.b.toInt();
   }
 
   // ---------------------------------------------------------------------------
@@ -366,7 +475,8 @@ for (final paletteIndex in colorOrder) {
     img.Pixel pixel,
     int background,
   ) {
-    final rgb = (pixel.r.toInt() << 16) |
+    final rgb =
+        (pixel.r.toInt() << 16) |
         (pixel.g.toInt() << 8) |
         pixel.b.toInt();
 
@@ -381,8 +491,10 @@ for (final paletteIndex in colorOrder) {
 
     final backgroundR =
         (background >> 16) & 0xFF;
+
     final backgroundG =
         (background >> 8) & 0xFF;
+
     final backgroundB =
         background & 0xFF;
 
@@ -432,7 +544,9 @@ for (final paletteIndex in colorOrder) {
 
     final entries = histogram.entries.toList()
       ..sort(
-        (a, b) => b.value.compareTo(a.value),
+        (a, b) => b.value.compareTo(
+          a.value,
+        ),
       );
 
     final palette = <int>[];
@@ -449,7 +563,8 @@ for (final paletteIndex in colorOrder) {
               entry.key,
               color,
             ) <
-            _colorMergeDist * _colorMergeDist) {
+            _colorMergeDist *
+                _colorMergeDist) {
           tooClose = true;
           break;
         }
@@ -504,7 +619,8 @@ for (final paletteIndex in colorOrder) {
       ];
     }
 
-    final histogram = List<int>.filled(
+    final histogram =
+        List<int>.filled(
       256,
       0,
     );
@@ -516,14 +632,17 @@ for (final paletteIndex in colorOrder) {
         }
 
         histogram[
-            _luma(src.getPixel(x, y))]++;
+          _luma(src.getPixel(x, y))
+        ]++;
       }
     }
 
     var first = -1;
     var last = -1;
 
-    for (var i = 0; i < histogram.length; i++) {
+    for (var i = 0;
+        i < histogram.length;
+        i++) {
       if (histogram[i] > 0) {
         if (first == -1) {
           first = i;
@@ -540,7 +659,9 @@ for (final paletteIndex in colorOrder) {
     var lowCount = 0;
     var highCount = 0;
 
-    for (var i = first; i <= last; i++) {
+    for (var i = first;
+        i <= last;
+        i++) {
       if (i <= (first + last) ~/ 2) {
         lowCount += histogram[i];
       } else {
@@ -617,8 +738,14 @@ for (final paletteIndex in colorOrder) {
   }
 
   static int _grayToRgb(int value) {
-    final v = value.clamp(0, 255);
-    return (v << 16) | (v << 8) | v;
+    final v = value.clamp(
+      0,
+      255,
+    );
+
+    return (v << 16) |
+        (v << 8) |
+        v;
   }
 
   static int _normalizeRgb(
@@ -703,7 +830,8 @@ for (final paletteIndex in colorOrder) {
     int w,
     int h,
   ) {
-    final histogram = List<int>.filled(
+    final histogram =
+        List<int>.filled(
       256,
       0,
     );
@@ -715,7 +843,8 @@ for (final paletteIndex in colorOrder) {
         }
 
         histogram[
-            _luma(src.getPixel(x, y))]++;
+          _luma(src.getPixel(x, y))
+        ]++;
       }
     }
 
@@ -790,11 +919,16 @@ for (final paletteIndex in colorOrder) {
   }
 
   static int _luma(img.Pixel pixel) {
-    return (0.299 * pixel.r +
-            0.587 * pixel.g +
-            0.114 * pixel.b)
+    return (
+      0.299 * pixel.r +
+      0.587 * pixel.g +
+      0.114 * pixel.b
+    )
         .round()
-        .clamp(0, 255);
+        .clamp(
+          0,
+          255,
+        );
   }
 
   // ---------------------------------------------------------------------------
@@ -820,19 +954,15 @@ for (final paletteIndex in colorOrder) {
       pitchPx,
     );
 
-    final firstRow = 0.0;
-
     var reverse = false;
 
-    for (
-      var y = firstRow;
-      y < h;
-      y += rowStep
-    ) {
+    for (var y = 0.0;
+        y < h;
+        y += rowStep) {
       final row = y.round().clamp(
-            0,
-            h - 1,
-          );
+        0,
+        h - 1,
+      );
 
       final runs = _findRuns(
         mask,
@@ -844,14 +974,16 @@ for (final paletteIndex in colorOrder) {
         continue;
       }
 
-      final orderedRuns =
-          reverse
-              ? runs.reversed.toList()
-              : runs;
+      final orderedRuns = reverse
+          ? runs.reversed.toList()
+          : runs;
 
       for (final run in orderedRuns) {
-        final startX = run[0].toDouble();
-        final endX = run[1].toDouble();
+        final startX =
+            run[0].toDouble();
+
+        final endX =
+            run[1].toDouble();
 
         final width =
             endX - startX;
@@ -867,6 +999,7 @@ for (final paletteIndex in colorOrder) {
               workH,
             ),
           );
+
           continue;
         }
 
@@ -978,16 +1111,22 @@ for (final paletteIndex in colorOrder) {
     }
 
     final pitchMmX =
-        workW / math.max(1, w - 1);
+        workW / math.max(
+      1,
+      w - 1,
+    );
 
     final pitchMmY =
-        workH / math.max(1, h - 1);
+        workH / math.max(
+      1,
+      h - 1,
+    );
 
     final pixelDistance =
         math.max(
-          1.0,
-          pitchPx * 0.75,
-        );
+      1.0,
+      pitchPx * 0.75,
+    );
 
     final minDistanceSquared =
         pixelDistance *
@@ -1002,11 +1141,14 @@ for (final paletteIndex in colorOrder) {
       if (lastX == null ||
           lastY == null) {
         out.add(point);
+
         lastX =
             point.x / pitchMmX;
+
         lastY =
             (workH - point.y) /
                 pitchMmY;
+
         continue;
       }
 
@@ -1024,11 +1166,13 @@ for (final paletteIndex in colorOrder) {
           py - lastY;
 
       final distanceSquared =
-          dx * dx + dy * dy;
+          dx * dx +
+              dy * dy;
 
       if (distanceSquared >=
           minDistanceSquared) {
         out.add(point);
+
         lastX = px;
         lastY = py;
       }
@@ -1085,11 +1229,17 @@ for (final paletteIndex in colorOrder) {
   ) {
     return TuftPoint(
       x: px /
-          math.max(1, w - 1) *
+          math.max(
+            1,
+            w - 1,
+          ) *
           workW,
       y: (1.0 -
               py /
-                  math.max(1, h - 1)) *
+                  math.max(
+                    1,
+                    h - 1,
+                  )) *
           workH,
     );
   }
@@ -1112,6 +1262,7 @@ for (final paletteIndex in colorOrder) {
 
     b.writeln('G21');
     b.writeln('G90');
+
     b.writeln(
       'G0 Z${safeZ.toStringAsFixed(2)}',
     );
@@ -1148,7 +1299,8 @@ for (final paletteIndex in colorOrder) {
                   : '?';
 
           b.writeln(
-            'M0 ; THREAD CHANGE -> color ${point.colorOrder} ($hex)',
+            'M0 ; THREAD CHANGE -> '
+            'color ${point.colorOrder} ($hex)',
           );
         }
 
@@ -1203,15 +1355,19 @@ for (final paletteIndex in colorOrder) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// Global function called by MachineService isolates
+// -----------------------------------------------------------------------------
 
-
-/// Global top-level function called by MachineService isolates.
 ExtractResult extractPathFromImageBytes(
   Uint8List bytes, {
   double pitch = 3.0,
 }) {
   return PathExtractor.extractMultiColor(
     bytes,
-    pitchMm: pitch.clamp(1.0, 5.0),
+    pitchMm: pitch.clamp(
+      1.0,
+      5.0,
+    ),
   );
 }

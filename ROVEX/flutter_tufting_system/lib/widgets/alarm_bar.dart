@@ -15,43 +15,62 @@ class AlarmBar extends StatelessWidget {
 
     return Container(
       height: 36,
-      color: hasAlarm ? HmiColors.estop.withValues(alpha: 0.25) : HmiColors.panelAlt,
+      color: hasAlarm
+          ? HmiColors.estop.withValues(alpha: 0.25)
+          : HmiColors.panelAlt,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: Row(
         children: [
           Icon(
-            hasAlarm ? Icons.warning_amber_rounded : Icons.check_circle,
+            hasAlarm
+                ? Icons.warning_amber_rounded
+                : Icons.check_circle,
             size: 16,
-            color: hasAlarm ? HmiColors.alarm : HmiColors.ready,
+            color: hasAlarm
+                ? HmiColors.alarm
+                : HmiColors.ready,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               hasAlarm ? 'ALARM: $alarm' : svc.message,
               style: TextStyle(
-                color: hasAlarm ? HmiColors.alarm : HmiColors.textDim,
+                color: hasAlarm
+                    ? HmiColors.alarm
+                    : HmiColors.textDim,
                 fontSize: 12,
-                fontWeight: hasAlarm ? FontWeight.w700 : FontWeight.w500,
+                fontWeight: hasAlarm
+                    ? FontWeight.w700
+                    : FontWeight.w500,
               ),
               overflow: TextOverflow.ellipsis,
             ),
           ),
           Text(
             'Feed ${svc.status.feedOverride}%',
-            style: const TextStyle(color: HmiColors.textMute, fontSize: 11),
+            style: const TextStyle(
+              color: HmiColors.textMute,
+              fontSize: 11,
+            ),
           ),
           SizedBox(
             width: 140,
             child: SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 7),
+                thumbShape: const RoundSliderThumbShape(
+                  enabledThumbRadius: 7,
+                ),
               ),
               child: Slider(
-                value: svc.status.feedOverride.toDouble().clamp(0, 120),
+                value: svc.status.feedOverride
+                    .toDouble()
+                    .clamp(0, 120),
                 min: 0,
                 max: 120,
-                onChanged: (v) => svc.setFeedOverride(v.round()),
+                onChanged: (v) {
+                  svc.setFeedOverride(v.round());
+                },
               ),
             ),
           ),

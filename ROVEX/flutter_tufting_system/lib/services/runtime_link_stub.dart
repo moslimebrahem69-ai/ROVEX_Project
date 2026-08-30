@@ -3,7 +3,8 @@ import 'runtime_link_base.dart';
 class StubRuntimeLink implements RuntimeLink {
   // In-memory only: this browser build has no writable filesystem here.
   // Fine for a same-session preview; native (mobile/desktop) builds use
-  // IoRuntimeLink below, which persists to real files.
+  // IoRuntimeLink, which persists to real files.
+
   static final Map<String, String> _memory = {};
 
   @override
@@ -11,7 +12,11 @@ class StubRuntimeLink implements RuntimeLink {
 
   @override
   Future<bool> connect(
-      String host, int port, LineHandler onLine, void Function() onGone) async {
+    String host,
+    int port,
+    LineHandler onLine,
+    void Function() onGone,
+  ) async {
     return false;
   }
 
@@ -22,12 +27,19 @@ class StubRuntimeLink implements RuntimeLink {
   void close() {}
 
   @override
-  Future<String> writeProgramCsv(String name, List<String> rows) async {
+  Future<String> writeProgramCsv(
+    String name,
+    List<String> rows,
+  ) async {
     return 'programs/$name.csv';
   }
 
   @override
-  Future<List<String>?> readCsvLines(String path) async => null;
+  Future<List<String>?> readCsvLines(
+    String path,
+  ) async {
+    return null;
+  }
 
   @override
   String basename(String path) {
@@ -36,12 +48,19 @@ class StubRuntimeLink implements RuntimeLink {
   }
 
   @override
-  Future<void> saveText(String key, String content) async {
+  Future<void> saveText(
+    String key,
+    String content,
+  ) async {
     _memory[key] = content;
   }
 
   @override
-  Future<String?> loadText(String key) async => _memory[key];
+  Future<String?> loadText(
+    String key,
+  ) async {
+    return _memory[key];
+  }
 }
 
 RuntimeLink createRuntimeLinkImpl() => StubRuntimeLink();

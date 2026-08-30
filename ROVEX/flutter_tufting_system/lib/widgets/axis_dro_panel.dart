@@ -21,48 +21,89 @@ class AxisDroPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(t.t('actual_pos'),
-                style: const TextStyle(
-                    color: HmiColors.gold,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1)),
+            Text(
+              t.t('actual_pos'),
+              style: const TextStyle(
+                color: HmiColors.gold,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+              ),
+            ),
             const SizedBox(height: 10),
+
             _axis('X', s.x),
             const SizedBox(height: 8),
+
             _axis('Y', s.y),
             const SizedBox(height: 8),
+
             _axis('Z', s.z, highlight: true),
             const SizedBox(height: 6),
-            Text(t.t('needle_axis'),
-                style: const TextStyle(
-                    color: HmiColors.accent, fontSize: 10)),
+
+            Text(
+              t.t('needle_axis'),
+              style: const TextStyle(
+                color: HmiColors.accent,
+                fontSize: 10,
+              ),
+            ),
             const SizedBox(height: 12),
+
             _kv('WCS X', s.wcsX.toStringAsFixed(3)),
             _kv('WCS Y', s.wcsY.toStringAsFixed(3)),
             _kv('WCS Z', s.wcsZ.toStringAsFixed(3)),
-            const Divider(color: HmiColors.border, height: 28),
+
+            const Divider(
+              color: HmiColors.border,
+              height: 28,
+            ),
+
             _kv('Feed ovrd', '${s.feedOverride}%'),
-            _kv('Jog step', '${s.jogStep.toStringAsFixed(2)} mm'),
-            _kv('Needle', s.needle ? 'DOWN' : 'UP'),
-            _kv('Referenced', s.referenced ? 'YES' : 'NO'),
-            _kv('Program', '${s.progPct.toStringAsFixed(1)}%'),
-            _kv('Points', '${s.pathIndex}/${s.pathCount}'),
+            _kv(
+              'Jog step',
+              '${s.jogStep.toStringAsFixed(2)} mm',
+            ),
+            _kv(
+              'Needle',
+              s.needle ? 'DOWN' : 'UP',
+            ),
+            _kv(
+              'Referenced',
+              s.referenced ? 'YES' : 'NO',
+            ),
+            _kv(
+              'Program',
+              '${s.progPct.toStringAsFixed(1)}%',
+            ),
+            _kv(
+              'Points',
+              '${s.pathIndex}/${s.pathCount}',
+            ),
+
             const SizedBox(height: 16),
+
             Container(
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
                 border: Border.all(
-                    color: s.connected ? HmiColors.ready : HmiColors.alarm),
+                  color: s.connected
+                      ? HmiColors.ready
+                      : HmiColors.alarm,
+                ),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    s.connected ? 'MACHINE LINKED' : 'MACHINE OFFLINE',
+                    s.connected
+                        ? 'MACHINE LINKED'
+                        : 'MACHINE OFFLINE',
                     style: TextStyle(
-                      color: s.connected ? HmiColors.ready : HmiColors.alarm,
+                      color: s.connected
+                          ? HmiColors.ready
+                          : HmiColors.alarm,
                       fontWeight: FontWeight.w800,
                       fontSize: 12,
                     ),
@@ -71,7 +112,9 @@ class AxisDroPanel extends StatelessWidget {
                   Text(
                     '${s.backend.toUpperCase()}  ${s.port}',
                     style: const TextStyle(
-                        color: HmiColors.textDim, fontSize: 11),
+                      color: HmiColors.textDim,
+                      fontSize: 11,
+                    ),
                   ),
                 ],
               ),
@@ -82,54 +125,84 @@ class AxisDroPanel extends StatelessWidget {
     );
   }
 
-  Widget _axis(String name, double v, {bool highlight = false}) {
+  Widget _axis(
+    String name,
+    double value, {
+    bool highlight = false,
+  }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 10,
+      ),
       decoration: BoxDecoration(
         color: HmiColors.panelAlt,
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
-            color: highlight ? HmiColors.gold : HmiColors.border),
+          color: highlight
+              ? HmiColors.gold
+              : HmiColors.border,
+        ),
       ),
       child: Row(
         children: [
-          Text(name,
-              style: TextStyle(
-                  color: highlight ? HmiColors.gold : HmiColors.accent,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800)),
+          Text(
+            name,
+            style: TextStyle(
+              color: highlight
+                  ? HmiColors.gold
+                  : HmiColors.accent,
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
           const Spacer(),
           Text(
-            v.toStringAsFixed(3),
+            value.toStringAsFixed(3),
             style: const TextStyle(
               color: HmiColors.dro,
               fontSize: 24,
               fontWeight: FontWeight.w700,
-              fontFeatures: [FontFeature.tabularFigures()],
+              fontFeatures: [
+                FontFeature.tabularFigures(),
+              ],
             ),
           ),
           const SizedBox(width: 6),
-          const Text('mm',
-              style: TextStyle(color: HmiColors.textMute, fontSize: 12)),
+          const Text(
+            'mm',
+            style: TextStyle(
+              color: HmiColors.textMute,
+              fontSize: 12,
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _kv(String k, String v) {
+  Widget _kv(String key, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
         children: [
           Expanded(
-              child: Text(k,
-                  style: const TextStyle(
-                      color: HmiColors.textDim, fontSize: 12))),
-          Text(v,
+            child: Text(
+              key,
               style: const TextStyle(
-                  color: HmiColors.text,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600)),
+                color: HmiColors.textDim,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          Text(
+            value,
+            style: const TextStyle(
+              color: HmiColors.text,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
         ],
       ),
     );

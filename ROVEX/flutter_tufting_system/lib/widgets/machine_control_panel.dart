@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
 
 import '../l10n/l10n.dart';
@@ -24,10 +25,6 @@ class MachineControlPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // ============================================================
-            // MACHINE CONTROL HEADER
-            // ============================================================
-
             Row(
               children: [
                 Container(
@@ -45,7 +42,7 @@ class MachineControlPanel extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      color: HmiColors.gold,
+                      color: HmiColors.accent,
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 1,
@@ -54,12 +51,7 @@ class MachineControlPanel extends StatelessWidget {
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
-            // ============================================================
-            // MAIN MACHINE CONTROLS
-            // ============================================================
 
             HmiButton(
               label: t.t('cycle_start'),
@@ -69,7 +61,6 @@ class MachineControlPanel extends StatelessWidget {
               fullWidth: true,
               onPressed: svc.cycleStart,
             ),
-
             const SizedBox(height: 8),
 
             HmiButton(
@@ -80,7 +71,6 @@ class MachineControlPanel extends StatelessWidget {
               fullWidth: true,
               onPressed: svc.feedHold,
             ),
-
             const SizedBox(height: 8),
 
             HmiButton(
@@ -91,7 +81,6 @@ class MachineControlPanel extends StatelessWidget {
               fullWidth: true,
               onPressed: svc.cycleStop,
             ),
-
             const SizedBox(height: 8),
 
             HmiButton(
@@ -102,12 +91,7 @@ class MachineControlPanel extends StatelessWidget {
               fullWidth: true,
               onPressed: svc.reset,
             ),
-
             const SizedBox(height: 8),
-
-            // ============================================================
-            // EMERGENCY STOP
-            // ============================================================
 
             HmiButton(
               label: t.t('estop'),
@@ -117,12 +101,7 @@ class MachineControlPanel extends StatelessWidget {
               fullWidth: true,
               onPressed: svc.estop,
             ),
-
             const SizedBox(height: 14),
-
-            // ============================================================
-            // MACHINE NAVIGATION / CONNECTION
-            // ============================================================
 
             HmiButton(
               label: t.t('home'),
@@ -132,7 +111,6 @@ class MachineControlPanel extends StatelessWidget {
               fullWidth: true,
               onPressed: svc.home,
             ),
-
             const SizedBox(height: 8),
 
             HmiButton(
@@ -149,24 +127,14 @@ class MachineControlPanel extends StatelessWidget {
                   ? svc.disconnectMachine
                   : svc.connectMachine,
             ),
-
             const SizedBox(height: 16),
-
-            // ============================================================
-            // JOG CONTROLS
-            // ============================================================
 
             if (s.mode == MachineMode.jog) ...[
               _sectionHeader(
                 title: t.t('jog'),
                 icon: Icons.open_with_rounded,
               ),
-
               const SizedBox(height: 10),
-
-              // ----------------------------------------------------------
-              // Y+
-              // ----------------------------------------------------------
 
               _jogButton(
                 svc,
@@ -174,12 +142,7 @@ class MachineControlPanel extends StatelessWidget {
                 dir: 1,
                 icon: Icons.keyboard_arrow_up_rounded,
               ),
-
               const SizedBox(height: 6),
-
-              // ----------------------------------------------------------
-              // X- / CENTER / X+
-              // ----------------------------------------------------------
 
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -201,12 +164,7 @@ class MachineControlPanel extends StatelessWidget {
                   ),
                 ],
               ),
-
               const SizedBox(height: 6),
-
-              // ----------------------------------------------------------
-              // Y-
-              // ----------------------------------------------------------
 
               _jogButton(
                 svc,
@@ -214,19 +172,13 @@ class MachineControlPanel extends StatelessWidget {
                 dir: -1,
                 icon: Icons.keyboard_arrow_down_rounded,
               ),
-
               const SizedBox(height: 12),
-
-              // ----------------------------------------------------------
-              // NEEDLE Z AXIS
-              // ----------------------------------------------------------
 
               _sectionHeader(
                 title: t.t('needle_axis'),
                 icon: Icons.height_rounded,
                 compact: true,
               ),
-
               const SizedBox(height: 8),
 
               Row(
@@ -248,23 +200,17 @@ class MachineControlPanel extends StatelessWidget {
                   ),
                 ],
               ),
-
               const SizedBox(height: 12),
 
-              // ----------------------------------------------------------
-              // JOG STEP
-              // ----------------------------------------------------------
-
-              Text(
+              const Text(
                 'JOG STEP',
-                style: const TextStyle(
+                style: TextStyle(
                   color: HmiColors.textMute,
                   fontSize: 9,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.8,
                 ),
               ),
-
               const SizedBox(height: 7),
 
               Row(
@@ -301,10 +247,6 @@ class MachineControlPanel extends StatelessWidget {
     );
   }
 
-  // ============================================================
-  // SECTION HEADER
-  // ============================================================
-
   Widget _sectionHeader({
     required String title,
     required IconData icon,
@@ -325,7 +267,7 @@ class MachineControlPanel extends StatelessWidget {
             overflow: TextOverflow.ellipsis,
             style: TextStyle(
               color: compact
-                  ? HmiColors.gold
+                  ? HmiColors.accent
                   : HmiColors.textDim,
               fontSize: compact ? 10 : 11,
               fontWeight: FontWeight.w800,
@@ -336,10 +278,6 @@ class MachineControlPanel extends StatelessWidget {
       ],
     );
   }
-
-  // ============================================================
-  // JOG BUTTON
-  // ============================================================
 
   Widget _jogButton(
     MachineService svc, {
@@ -362,7 +300,6 @@ class MachineControlPanel extends StatelessWidget {
             borderRadius: BorderRadius.circular(9),
             border: Border.all(
               color: HmiColors.border,
-              width: 1,
             ),
           ),
           child: Icon(
@@ -374,10 +311,6 @@ class MachineControlPanel extends StatelessWidget {
       ),
     );
   }
-
-  // ============================================================
-  // JOG CENTER INDICATOR
-  // ============================================================
 
   Widget _jogCenter() {
     return Container(
@@ -399,10 +332,6 @@ class MachineControlPanel extends StatelessWidget {
       ),
     );
   }
-
-  // ============================================================
-  // Z AXIS BUTTON
-  // ============================================================
 
   Widget _zButton(
     MachineService svc, {
@@ -440,10 +369,6 @@ class MachineControlPanel extends StatelessWidget {
       ),
     );
   }
-
-  // ============================================================
-  // JOG STEP BUTTON
-  // ============================================================
 
   Widget _stepButton(
     MachineService svc,

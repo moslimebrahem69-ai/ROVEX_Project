@@ -1,7 +1,7 @@
 #include "path_optimizer.h"
+
 #include <math.h>
 #include <stdlib.h>
-#include <string.h>
 
 typedef struct
 {
@@ -9,53 +9,80 @@ typedef struct
     double y;
 } Point;
 
-typedef struct
+static double distance_between(const Point *a, const Point *b)
 {
-    Point *points;
-    int count;
-} Path;
+    const double dx = a->x - b->x;
+    const double dy = a->y - b->y;
 
-static double distance(Point a, Point b)
-{
-    double dx = a.x - b.x;
-    double dy = a.y - b.y;
     return sqrt(dx * dx + dy * dy);
 }
 
-static double path_length(Point *points, int count, int *order)
+static double calculate_path_length(
+    const Point *points,
+    int count,
+    const int *order)
 {
-    double total = 0.0;
-    for (int i = 0; i < count - 1; i++)
+    double total_length = 0.0;
+
+    for (int i = 0; i < count - 1; ++i)
     {
-        total += distance(points[order[i]], points[order[i + 1]]);
+        total_length += distance_between(
+            &points[order[i]],
+            &points[order[i + 1]]);
     }
-    return total;
+
+    return total_length;
 }
 
-static void two_opt_pass(Point *points, int count, int *order, double *best_length)
+static void reverse_order_segment(int *order, int start, int end)
+{
+    while (start < end)
+    {
+        const int temp = order[start];
+        order[start] = order[end];
+        order[end] = temp;
+
+        ++start;
+        --end;
+    }
+}
+
+static void apply_two_opt(
+    const Point *points,
+    int count,
+    int *order,
+    double *path_length)
 {
     int improved = 1;
+
     while (improved)
     {
         improved = 0;
-        for (int i = 0; i < count - 1; i++)
+
+        for (int i = 0; i < count - 1; ++i)
         {
-            for (int j = i + 2; j < count; j++)
+            for (int j = i + 2; j < count; ++j)
             {
                 if (j == count - 1)
+                {
                     continue;
+                }
 
-                double delta = -distance(points[order[i]], points[order[i + 1]]) - distance(points[order[j]], points[order[j + 1]]) + distance(points[order[i]], points[order[j]]) + distance(points[order[i + 1]], points[order[j + 1]]);
+                const double current_distance =
+                    distance_between(&points[order[i]], &points[order[i + 1]]) +
+                    distance_between(&points[order[j]], &points[order[j + 1]]);
+
+                const double new_distance =
+                    distance_between(&points[order[i]], &points[order[j]]) +
+                    distance_between(&points[order[i + 1]], &points[order[j + 1]]);
+
+                const double delta = new_distance - current_distance;
 
                 if (delta < -1e-9)
                 {
-                    for (int k = i + 1; k <= j; k++)
-                    {
-                        int temp = order[k];
-                        order[k] = order[j + i + 1 - k];
-                        order[j + i + 1 - k] = temp;
-                    }
-                    *best_length += delta;
+                    reverse_order_segment(order, i + 1, j);
+
+                    *path_length += delta;
                     improved = 1;
                 }
             }
@@ -65,43 +92,55 @@ static void two_opt_pass(Point *points, int count, int *order, double *best_leng
 
 void optimize_path(Point *points, int count, int *order)
 {
-    for (int i = 0; i < count; i++)
+    for (int i = 0; i < count; ++i)
     {
         order[i] = i;
     }
 
-    double best_length = path_length(points, count, order);
-    two_opt_pass(points, count, order, &best_length);
+    double path_length = calculate_path_length(points, count, order);
+
+    apply_two_opt(points, count, order, &path_length);
 }
 
 void nearest_neighbor(Point *points, int count, int *order)
 {
-    int *visited = calloc(count, sizeof(int));
+    int *visited = calloc((size_t)count, sizeof(*visited));
+
+    if (visited == NULL || count <= 0)
+    {
+        free(visited);
+        return;
+    }
+
     order[0] = 0;
     visited[0] = 1;
 
-    for (int i = 1; i < count; i++)
+    for (int i = 1; i < count; ++i)
     {
-        double min_dist = 1e9;
-        int next = -1;
+        double nearest_distance = 1e9;
+        int nearest_point = -1;
 
-        for (int j = 0; j < count; j++)
+        for (int j = 0; j < count; ++j)
         {
-            if (!visited[j])
+            if (visited[j])
             {
-                double d = distance(points[order[i - 1]], points[j]);
-                if (d < min_dist)
-                {
-                    min_dist = d;
-                    next = j;
-                }
+                continue;
+            }
+
+            const double current_distance =
+                distance_between(&points[order[i - 1]], &points[j]);
+
+            if (current_distance < nearest_distance)
+            {
+                nearest_distance = current_distance;
+                nearest_point = j;
             }
         }
 
-        if (next != -1)
+        if (nearest_point != -1)
         {
-            order[i] = next;
-            visited[next] = 1;
+            order[i] = nearest_point;
+            visited[nearest_point] = 1;
         }
     }
 

@@ -14,6 +14,7 @@ class HmiSoftkeyBar extends StatelessWidget {
     final svc = context.watch<MachineService>();
     final loc = context.watch<LocaleController>();
     final t = loc.l10n;
+
     final items = [
       (HmiArea.machine, t.t('machine')),
       (HmiArea.program, t.t('program')),
@@ -37,13 +38,13 @@ class HmiSoftkeyBar extends StatelessWidget {
               t.t('brand'),
               style: const TextStyle(
                 color: HmiColors.accent,
-                fontWeight: FontWeight.w800,
                 fontSize: 15,
-                letterSpacing: 1.0,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1,
               ),
             ),
           ),
-                    Expanded(
+          Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
@@ -51,29 +52,13 @@ class HmiSoftkeyBar extends StatelessWidget {
                   for (final (area, label) in items)
                     Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 2, vertical: 6),
-                      child: Material(
-                        color: svc.area == area
-                            ? HmiColors.softkeyActive
-                            : HmiColors.softkey,
-                        borderRadius: BorderRadius.circular(4),
-                        child: InkWell(
-                          onTap: () => svc.setArea(area),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 8),
-                            child: Text(
-                              label,
-                              style: TextStyle(
-                                color: svc.area == area
-                                    ? HmiColors.text
-                                    : HmiColors.textDim,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
+                        horizontal: 2,
+                        vertical: 6,
+                      ),
+                      child: _AreaButton(
+                        label: label,
+                        active: svc.area == area,
+                        onTap: () => svc.setArea(area),
                       ),
                     ),
                 ],
@@ -91,15 +76,21 @@ class HmiSoftkeyBar extends StatelessWidget {
   Widget _langBtn(LocaleController loc) {
     return Material(
       color: HmiColors.softkey,
-      borderRadius: BorderRadius.circular(4),
+      borderRadius: BorderRadius.circular(5),
       child: InkWell(
+        borderRadius: BorderRadius.circular(5),
         onTap: loc.cycleLang,
+        hoverColor: HmiColors.softkeyActive.withValues(alpha: 0.45),
+        splashColor: HmiColors.accent.withValues(alpha: 0.10),
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 8,
+          ),
           child: Text(
             '${loc.l10n.t('language')}: ${loc.l10n.code}',
             style: const TextStyle(
-              color: HmiColors.accent,
+              color: HmiColors.textDim,
               fontSize: 11,
               fontWeight: FontWeight.w800,
             ),
@@ -110,21 +101,118 @@ class HmiSoftkeyBar extends StatelessWidget {
   }
 
   Widget _linkBadge(MachineService svc) {
-    final ok = svc.runtimeLinked || svc.status.connected;
+    final connected = svc.runtimeLinked || svc.status.connected;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 9),
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        border: Border.all(color: ok ? HmiColors.ready : HmiColors.alarm),
-        borderRadius: BorderRadius.circular(4),
+        color: connected
+            ? HmiColors.ready.withValues(alpha: 0.08)
+            : HmiColors.alarm.withValues(alpha: 0.08),
+        border: Border.all(
+          color: connected
+              ? HmiColors.ready.withValues(alpha: 0.65)
+              : HmiColors.alarm.withValues(alpha: 0.65),
+        ),
+        borderRadius: BorderRadius.circular(5),
       ),
       child: Text(
         svc.runtimeLinked
             ? 'C'
             : (svc.status.connected ? 'SIM' : 'OFF'),
         style: TextStyle(
-          color: ok ? HmiColors.ready : HmiColors.alarm,
+          color: connected ? HmiColors.ready : HmiColors.alarm,
           fontSize: 10,
           fontWeight: FontWeight.w800,
+          letterSpacing: 0.5,
+        ),
+      ),
+    );
+  }
+}
+
+class _AreaButton extends StatefulWidget {
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _AreaButton({
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  State<_AreaButton> createState() => _AreaButtonState();
+}
+
+class _AreaButtonState extends State<_AreaButton> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = widget.active;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) {
+        setState(() {
+          _hovered = true;
+        });
+      },
+      onExit: (_) {
+        setState(() {
+          _hovered = false;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 100),
+        decoration: BoxDecoration(
+          color: active
+              ? HmiColors.softkeyActive
+              : _hovered
+                  ? HmiColors.panelAlt
+                  : HmiColors.softkey,
+          borderRadius: BorderRadius.circular(5),
+          border: Border.all(
+            color: active
+                ? HmiColors.accent
+                : _hovered
+                    ? HmiColors.border
+                    : Colors.transparent,
+            width: active ? 1 : 1,
+          ),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(5),
+            onTap: widget.onTap,
+            splashColor: HmiColors.accent.withValues(alpha: 0.10),
+            highlightColor: HmiColors.accent.withValues(alpha: 0.05),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              child: Text(
+                widget.label,
+                style: TextStyle(
+                  color: active
+                      ? HmiColors.text
+                      : _hovered
+                          ? HmiColors.text
+                          : HmiColors.textDim,
+                  fontSize: 11,
+                  fontWeight: active
+                      ? FontWeight.w800
+                      : FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
         ),
       ),
     );

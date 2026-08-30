@@ -11,24 +11,16 @@ class PathPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svc = context.watch<MachineService>();
-
     final pts = svc.programPoints;
     final s = svc.status;
     final colorGroups = svc.colorGroups;
     final activeColor = svc.activeColorOrder;
-
 
     return Container(
       color: HmiColors.bg,
       child: Stack(
         fit: StackFit.expand,
         children: [
-
-         
-          // =========================================================
-          // TOOLPATH + MACHINE HEAD
-          // =========================================================
-
           CustomPaint(
             painter: _PathPainter(
               points: pts,
@@ -37,10 +29,6 @@ class PathPreview extends StatelessWidget {
               progressIndex: s.pathIndex,
             ),
           ),
-
-          // =========================================================
-          // EMPTY STATE
-          // =========================================================
 
           if (pts.isEmpty)
             const Center(
@@ -54,11 +42,7 @@ class PathPreview extends StatelessWidget {
               ),
             ),
 
-          // =========================================================
-          // PROGRAM NAME
-          // =========================================================
-
-              if (pts.isNotEmpty)
+          if (pts.isNotEmpty)
             Align(
               alignment: Alignment.topLeft,
               child: Padding(
@@ -74,10 +58,6 @@ class PathPreview extends StatelessWidget {
                 ),
               ),
             ),
-
-          // =========================================================
-          // COLOR LEGEND
-          // =========================================================
 
           if (colorGroups.isNotEmpty)
             Align(
@@ -96,10 +76,6 @@ class PathPreview extends StatelessWidget {
   }
 }
 
-// ===================================================================
-// COLOR LEGEND
-// ===================================================================
-
 class _ColorLegend extends StatelessWidget {
   final List<ColorGroup> groups;
   final int? activeOrder;
@@ -117,7 +93,7 @@ class _ColorLegend extends StatelessWidget {
         vertical: 6,
       ),
       decoration: BoxDecoration(
-        color: HmiColors.panel.withValues(alpha: 0.85),
+        color: HmiColors.panel.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(6),
         border: Border.all(
           color: HmiColors.border,
@@ -133,24 +109,25 @@ class _ColorLegend extends StatelessWidget {
             style: const TextStyle(
               color: HmiColors.textDim,
               fontSize: 11,
+              fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 5),
           Wrap(
             spacing: 6,
             runSpacing: 4,
-            children: groups.map((g) {
-              final isActive = g.order == activeOrder;
+            children: groups.map((group) {
+              final isActive = group.order == activeOrder;
 
               return Container(
                 width: 16,
                 height: 16,
                 decoration: BoxDecoration(
-                  color: Color(g.colorValue),
+                  color: Color(group.colorValue),
                   shape: BoxShape.circle,
                   border: Border.all(
                     color: isActive
-                        ? HmiColors.warn
+                        ? HmiColors.accent
                         : HmiColors.border,
                     width: isActive ? 2.5 : 1,
                   ),
@@ -164,17 +141,13 @@ class _ColorLegend extends StatelessWidget {
   }
 }
 
-// ===================================================================
-// PATH PAINTER
-// ===================================================================
-
 class _PathPainter extends CustomPainter {
   final List<TuftPoint> points;
   final double headX;
   final double headY;
   final int progressIndex;
 
-  _PathPainter({
+  const _PathPainter({
     required this.points,
     required this.headX,
     required this.headY,
@@ -183,12 +156,43 @@ class _PathPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // ===============================================================
-    // GRID
-    // ===============================================================
+    _drawGrid(canvas, size);
 
+    if (points.isEmpty) {
+      return;
+    }
+
+    final bounds = _getBounds();
+    final minX = bounds[0];
+    final maxX = bounds[1];
+    final minY = bounds[2];
+    final maxY = bounds[3];
+
+    final spanX = (maxX - minX).abs() < 1 ? 1.0 : maxX - minX;
+    final spanY = (maxY - minY).abs() < 1 ? 1.0 : maxY - minY;
+
+    const pad = 40.0;
+
+    Offset map(double x, double y) {
+      final nx = pad +
+          ((x - minX) / spanX) *
+              (size.width - pad * 2);
+
+      final ny = size.height -
+          pad -
+          ((y - minY) / spanY) *
+              (size.height - pad * 2);
+
+      return Offset(nx, ny);
+    }
+
+    _drawStitches(canvas, map, progressIndex);
+    _drawGun(canvas, map);
+  }
+
+  void _drawGrid(Canvas canvas, Size size) {
     final grid = Paint()
-      ..color = const Color(0xFFDCE3EA).withValues(alpha: 0.35)
+      ..color = HmiColors.border.withValues(alpha: 0.35)
       ..strokeWidth = 1;
 
     for (double x = 0; x < size.width; x += 40) {
@@ -206,183 +210,119 @@ class _PathPainter extends CustomPainter {
         grid,
       );
     }
+  }
 
-    if (points.isEmpty) {
-      return;
-    }
-
-    // ===============================================================
-    // FIND PATH BOUNDS
-    // ===============================================================
-
+  List<double> _getBounds() {
     double minX = points.first.x;
     double maxX = points.first.x;
     double minY = points.first.y;
     double maxY = points.first.y;
 
-    for (final p in points) {
-      if (p.x < minX) minX = p.x;
-      if (p.x > maxX) maxX = p.x;
-      if (p.y < minY) minY = p.y;
-      if (p.y > maxY) maxY = p.y;
+    for (final point in points) {
+      if (point.x < minX) minX = point.x;
+      if (point.x > maxX) maxX = point.x;
+      if (point.y < minY) minY = point.y;
+      if (point.y > maxY) maxY = point.y;
     }
 
-    final spanX = (maxX - minX).abs() < 1
-        ? 1.0
-        : maxX - minX;
+    return [minX, maxX, minY, maxY];
+  }
 
-    final spanY = (maxY - minY).abs() < 1
-        ? 1.0
-        : maxY - minY;
-
-    const pad = 40.0;
-
-    // ===============================================================
-    // MAP MACHINE COORDINATES → SCREEN
-    // ===============================================================
-
-    Offset map(double x, double y) {
-      final nx = pad +
-          ((x - minX) / spanX) *
-              (size.width - (pad * 2));
-
-      final ny = size.height -
-          pad -
-          ((y - minY) / spanY) *
-              (size.height - (pad * 2));
-
-      return Offset(nx, ny);
-    }
-
-        // ===============================================================
-       // DRAW STITCHES ONLY AS THE MACHINE REACHES THEM
-       // ===============================================================
-
-    final tuftPaint = Paint()..style = PaintingStyle.fill;
-
+  void _drawStitches(
+    Canvas canvas,
+    Offset Function(double, double) map,
+    int progressIndex,
+  ) {
+    final paint = Paint()..style = PaintingStyle.fill;
     final visibleCount = progressIndex.clamp(0, points.length);
 
     for (int i = 0; i < visibleCount; i++) {
       final point = points[i];
+      final colorValue = point.colorValue;
 
-     final ptOffset = map(
-     point.x,
-      point.y,
-     );
+      if (colorValue == null) {
+        paint.color = HmiColors.accent;
+      } else {
+        paint.color = Color(colorValue);
+      }
 
-     final Color tuftColor = Color(point.colorValue!);
+      canvas.drawCircle(
+        map(point.x, point.y),
+        3.0,
+        paint,
+      );
+    }
+  }
 
-  tuftPaint.color = tuftColor;
+  void _drawGun(
+    Canvas canvas,
+    Offset Function(double, double) map,
+  ) {
+    final head = map(headX, headY);
 
-  canvas.drawCircle(
-    ptOffset,
-    3.0,
-    tuftPaint,
-  );
-}
-  
+    canvas.save();
+    canvas.translate(head.dx, head.dy);
+    canvas.scale(0.65);
 
-    // ===============================================================
-    // MACHINE HEAD / NEEDLE
-    // ===============================================================
+    const gunSize = Size(80, 70);
 
-    // ===============================================================
-// TUFTING GUN
-// ===============================================================
+    const gunPainter = _TuftingGunPainter();
 
-final head = map(
-  headX,
-  headY,
-);
+    gunPainter.paint(
+      canvas,
+      gunSize,
+    );
 
-canvas.save();
-
-canvas.translate(
-  head.dx,
-  head.dy,
-);
-
- 
-const gunScale = 0.65;
-
-canvas.scale(
-  gunScale,
-  gunScale,
-);
-
- _TuftingGunPainter(
-  active: progressIndex > 0,
-).paint(
-  canvas,
-  const Size(80, 70),
-);
-
-canvas.restore();
+    canvas.restore();
   }
 
   @override
-  bool shouldRepaint(
-    covariant _PathPainter old,
-  ) {
-    return old.points != points ||
-        old.headX != headX ||
-        old.headY != headY ||
-        old.progressIndex != progressIndex;
+  bool shouldRepaint(covariant _PathPainter oldDelegate) {
+    return oldDelegate.points != points ||
+        oldDelegate.headX != headX ||
+        oldDelegate.headY != headY ||
+        oldDelegate.progressIndex != progressIndex;
   }
 }
-// ===================================================================
-// TUFTING GUN PAINTER
-// ===================================================================
 
 class _TuftingGunPainter extends CustomPainter {
-  final bool active;
-
-  const _TuftingGunPainter({
-    required this.active,
-  });
+  const _TuftingGunPainter();
 
   @override
   void paint(Canvas canvas, Size size) {
     final scale = size.width / 80.0;
-
     canvas.scale(scale, scale);
 
     final bodyPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color(0xFF30343A);
+      ..color = HmiColors.panelAlt;
 
     final metalPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color(0xFFB8BEC6);
+      ..color = HmiColors.accent;
 
     final darkPaint = Paint()
       ..style = PaintingStyle.fill
-      ..color = const Color(0xFF15181C);
-
-    // جسم مسدس التطريز
-    final body = RRect.fromRectAndRadius(
-      const Rect.fromLTWH(15, 12, 42, 25),
-      const Radius.circular(5),
-    );
+      ..color = HmiColors.bg;
 
     canvas.drawRRect(
-      body,
+      RRect.fromRectAndRadius(
+        const Rect.fromLTWH(15, 12, 42, 25),
+        const Radius.circular(5),
+      ),
       bodyPaint,
     );
 
-    // الجزء الأمامي
     canvas.drawRect(
       const Rect.fromLTWH(54, 17, 13, 14),
       metalPaint,
     );
 
-    // الإبرة
     canvas.drawRect(
       const Rect.fromLTWH(65, 22, 10, 3),
       darkPaint,
     );
 
-    // المقبض
     final handle = Path()
       ..moveTo(25, 35)
       ..lineTo(43, 35)
@@ -395,7 +335,6 @@ class _TuftingGunPainter extends CustomPainter {
       bodyPaint,
     );
 
-    // الجزء العلوي
     canvas.drawRRect(
       RRect.fromRectAndRadius(
         const Rect.fromLTWH(27, 6, 20, 8),
@@ -403,25 +342,10 @@ class _TuftingGunPainter extends CustomPainter {
       ),
       metalPaint,
     );
-
-    // مؤشر الحركة / الإبرة
-    if (active) {
-      final needlePaint = Paint()
-        ..color = HmiColors.accent
-        ..strokeWidth = 2;
-
-      canvas.drawLine(
-        const Offset(75, 20),
-        const Offset(75, 30),
-        needlePaint,
-      );
-    }
   }
 
   @override
-  bool shouldRepaint(
-    covariant _TuftingGunPainter oldDelegate,
-  ) {
-    return oldDelegate.active != active;
+  bool shouldRepaint(covariant _TuftingGunPainter oldDelegate) {
+    return false;
   }
 }

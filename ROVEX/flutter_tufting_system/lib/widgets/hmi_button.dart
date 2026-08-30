@@ -48,16 +48,22 @@ class _HmiButtonState extends State<HmiButton> {
     switch (widget.type) {
       case HmiButtonType.start:
         return HmiColors.start;
+
       case HmiButtonType.hold:
         return HmiColors.hold;
+
       case HmiButtonType.stop:
         return HmiColors.stop;
+
       case HmiButtonType.estop:
         return HmiColors.estop;
+
       case HmiButtonType.connect:
         return HmiColors.ready;
+
       case HmiButtonType.active:
         return HmiColors.softkeyActive;
+
       case HmiButtonType.normal:
         return HmiColors.softkey;
     }
@@ -73,7 +79,7 @@ class _HmiButtonState extends State<HmiButton> {
     }
 
     if (_hovered) {
-      return _lighten(_baseColor, 0.08);
+      return _lighten(_baseColor, 0.07);
     }
 
     return _baseColor;
@@ -84,7 +90,11 @@ class _HmiButtonState extends State<HmiButton> {
       return HmiColors.border;
     }
 
-    if (_hovered || _pressed) {
+    if (_pressed) {
+      return HmiColors.textDim;
+    }
+
+    if (_hovered) {
       return HmiColors.accent;
     }
 
@@ -92,7 +102,22 @@ class _HmiButtonState extends State<HmiButton> {
   }
 
   Color get _textColor {
-    return _isEnabled ? HmiColors.text : HmiColors.textMute;
+    if (!_isEnabled) {
+      return HmiColors.textMute;
+    }
+
+    switch (widget.type) {
+      case HmiButtonType.normal:
+      case HmiButtonType.active:
+        return HmiColors.text;
+
+      case HmiButtonType.start:
+      case HmiButtonType.hold:
+      case HmiButtonType.stop:
+      case HmiButtonType.estop:
+      case HmiButtonType.connect:
+        return Colors.white;
+    }
   }
 
   double get _elevation {
@@ -100,7 +125,7 @@ class _HmiButtonState extends State<HmiButton> {
       return 0;
     }
 
-    return _hovered ? 5 : 2;
+    return _hovered ? 4 : 1.5;
   }
 
   Color _darken(Color color, double amount) {
@@ -123,121 +148,121 @@ class _HmiButtonState extends State<HmiButton> {
         .toColor();
   }
 
+  void _setPressed(bool value) {
+    if (!_isEnabled || _pressed == value) {
+      return;
+    }
+
+    setState(() {
+      _pressed = value;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final button = MouseRegion(
-      cursor: _isEnabled
-          ? SystemMouseCursors.click
-          : SystemMouseCursors.basic,
-      onEnter: (_) {
-        if (!_isEnabled) return;
+    return SizedBox(
+      width: widget.fullWidth ? double.infinity : widget.width,
+      height: widget.height,
+      child: MouseRegion(
+        cursor: _isEnabled
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onEnter: (_) {
+          if (!_isEnabled) return;
 
-        setState(() {
-          _hovered = true;
-        });
-      },
-      onExit: (_) {
-        if (!_isEnabled) return;
+          setState(() {
+            _hovered = true;
+          });
+        },
+        onExit: (_) {
+          if (!_isEnabled) return;
 
-        setState(() {
-          _hovered = false;
-        });
-      },
-      child: GestureDetector(
-        onTap: _isEnabled ? widget.onPressed : null,
-        onTapDown: _isEnabled
-            ? (_) {
-                setState(() {
-                  _pressed = true;
-                });
-              }
-            : null,
-        onTapUp: _isEnabled
-            ? (_) {
-                setState(() {
-                  _pressed = false;
-                });
-              }
-            : null,
-        onTapCancel: _isEnabled
-            ? () {
-                setState(() {
-                  _pressed = false;
-                });
-              }
-            : null,
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 120),
-          curve: Curves.easeOutCubic,
-          height: widget.height,
-          width: widget.fullWidth ? double.infinity : widget.width,
-          transform: Matrix4.identity()
-             ..scaleByDouble(
-               _pressed ? 0.985 : 1.0,
-               _pressed ? 0.985 : 1.0,
-               1.0,
-               1.0,
-             ),
-          decoration: BoxDecoration(
-            color: _backgroundColor,
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: _borderColor,
-              width: _hovered || _pressed ? 1.2 : 1,
-            ),
-            boxShadow: _isEnabled && _elevation > 0
-                ? [
-                    BoxShadow(
-                      color: Colors.black.withValues(
-                        alpha: _hovered ? 0.32 : 0.20,
-                      ),
-                      blurRadius: _hovered ? 8 : 4,
-                      offset: Offset(
-                        0,
-                       _elevation * 0.7,
-                  ),
-                ),
-              ]
-            : null,
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: _isEnabled ? widget.onPressed : null,
-              splashColor: HmiColors.accent.withValues(alpha: 0.12),
-              highlightColor: HmiColors.accent.withValues(alpha: 0.06),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                ),
-                child: Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (widget.icon != null) ...[
-                        Icon(
-                          widget.icon,
-                          size: 19,
-                          color: _textColor,
+          setState(() {
+            _hovered = false;
+            _pressed = false;
+          });
+        },
+        child: GestureDetector(
+          onTap: _isEnabled ? widget.onPressed : null,
+          onTapDown: _isEnabled ? (_) => _setPressed(true) : null,
+          onTapUp: _isEnabled ? (_) => _setPressed(false) : null,
+          onTapCancel: _isEnabled ? () => _setPressed(false) : null,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 110),
+            curve: Curves.easeOutCubic,
+            transformAlignment: Alignment.center,
+            transform: Matrix4.identity()
+              ..scaleByDouble(
+                _pressed ? 0.985 : 1.0,
+                _pressed ? 0.985 : 1.0,
+                1.0,
+                1.0,
+              ),
+            decoration: BoxDecoration(
+              color: _backgroundColor,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: _borderColor,
+                width: _hovered || _pressed ? 1.2 : 1,
+              ),
+              boxShadow: _isEnabled && _elevation > 0
+                  ? [
+                      BoxShadow(
+                        color: Colors.black.withValues(
+                          alpha: _hovered ? 0.28 : 0.16,
                         ),
-                        const SizedBox(width: 7),
-                      ],
-                      Flexible(
-                        child: Text(
-                          widget.label,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
+                        blurRadius: _hovered ? 7 : 3,
+                        offset: Offset(
+                          0,
+                          _elevation * 0.6,
+                        ),
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Material(
+              color: Colors.transparent,
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: _isEnabled ? widget.onPressed : null,
+                splashColor: HmiColors.accent.withValues(
+                  alpha: 0.10,
+                ),
+                highlightColor: HmiColors.accent.withValues(
+                  alpha: 0.05,
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                  ),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (widget.icon != null) ...[
+                          Icon(
+                            widget.icon,
+                            size: 18,
                             color: _textColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.25,
+                          ),
+                          const SizedBox(width: 7),
+                        ],
+                        Flexible(
+                          child: Text(
+                            widget.label,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              color: _textColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.2,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -245,12 +270,6 @@ class _HmiButtonState extends State<HmiButton> {
           ),
         ),
       ),
-    );
-
-    return SizedBox(
-      width: widget.fullWidth ? double.infinity : widget.width,
-      height: widget.height,
-      child: button,
     );
   }
 }

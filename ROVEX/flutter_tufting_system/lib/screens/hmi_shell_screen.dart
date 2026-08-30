@@ -24,6 +24,7 @@ class _HmiShellScreenState extends State<HmiShellScreen> {
   @override
   void initState() {
     super.initState();
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<MachineService>().start();
     });
@@ -31,11 +32,11 @@ class _HmiShellScreenState extends State<HmiShellScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final area = context.watch<MachineService>().area;
-    final loc = context.watch<LocaleController>();
+    final machineService = context.watch<MachineService>();
+    final localeController = context.watch<LocaleController>();
 
     return Directionality(
-      textDirection: loc.textDirection,
+      textDirection: localeController.textDirection,
       child: Scaffold(
         backgroundColor: HmiColors.bg,
         body: Column(
@@ -46,7 +47,9 @@ class _HmiShellScreenState extends State<HmiShellScreen> {
               child: Row(
                 children: [
                   const AxisDroPanel(),
-                  Expanded(child: _areaBody(area)),
+                  Expanded(
+                    child: _buildAreaBody(machineService.area),
+                  ),
                   const MachineControlPanel(),
                 ],
               ),
@@ -58,22 +61,29 @@ class _HmiShellScreenState extends State<HmiShellScreen> {
     );
   }
 
-  Widget _areaBody(HmiArea area) {
+  Widget _buildAreaBody(HmiArea area) {
     switch (area) {
       case HmiArea.machine:
         return const MachineAreaBody();
+
       case HmiArea.program:
         return const ProgramAreaBody();
+
       case HmiArea.design:
         return const DesignAreaBody();
+
       case HmiArea.needle3d:
         return const Needle3dAreaBody();
+
       case HmiArea.errors:
         return const ErrorsAreaBody();
+
       case HmiArea.plc:
         return const PlcAreaBody();
+
       case HmiArea.diagnosis:
         return const DiagnosisAreaBody();
+
       case HmiArea.setup:
         return const SetupAreaBody();
     }
