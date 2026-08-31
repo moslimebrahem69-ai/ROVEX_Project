@@ -4,7 +4,6 @@ import 'dart:convert';
 
 import 'dart:math' as math;
 
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -95,9 +94,7 @@ class MachineService extends ChangeNotifier {
   );
 
   // ---------------------------------------------------------------------------
-
   // Color Run
-
   // ---------------------------------------------------------------------------
 
   bool _colorRunMode = false;
