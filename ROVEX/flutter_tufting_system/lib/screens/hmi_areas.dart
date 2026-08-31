@@ -4,21 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image/image.dart' as img;
 import 'package:provider/provider.dart';
-
 import '../l10n/l10n.dart';
 import '../models/machine_status.dart';
 import '../services/machine_service.dart';
 import '../theme/hmi_colors.dart';
 import '../widgets/hmi_button.dart';
 import '../widgets/path_preview.dart';
-
 class MachineAreaBody extends StatelessWidget {
   const MachineAreaBody({super.key});
-
   @override
   Widget build(BuildContext context) {
     final service = context.watch<MachineService>();
-
     if (service.status.mode == MachineMode.mdi) {
       return Column(
         children: [
@@ -29,18 +25,14 @@ class MachineAreaBody extends StatelessWidget {
         ],
       );
     }
-
     return const PathPreview();
   }
 }
-
 class _MdiBar extends StatelessWidget {
   final MachineService service;
-
   const _MdiBar({
     required this.service,
   });
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -81,14 +73,11 @@ class _MdiBar extends StatelessWidget {
     );
   }
 }
-
 class ProgramAreaBody extends StatelessWidget {
   const ProgramAreaBody({super.key});
-
   @override
   Widget build(BuildContext context) {
     final service = context.watch<MachineService>();
-
     return Padding(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -139,7 +128,6 @@ class ProgramAreaBody extends StatelessWidget {
       ),
     );
   }
-
   Future<void> _openProgram(
     BuildContext context,
     MachineService service,
@@ -148,58 +136,44 @@ class ProgramAreaBody extends StatelessWidget {
       type: FileType.custom,
       allowedExtensions: ['csv'],
     );
-
     if (result == null || result.files.isEmpty) {
       return;
     }
-
     final path = result.files.single.path;
-
     if (path == null) {
       return;
     }
-
     await service.setMode(MachineMode.auto);
     await service.loadPathFile(path);
   }
-
   Future<void> _startProgram(MachineService service) async {
     await service.setMode(MachineMode.auto);
     await service.cycleStart();
     service.setArea(HmiArea.machine);
   }
 }
-
 class DesignAreaBody extends StatefulWidget {
   const DesignAreaBody({super.key});
-
   @override
   State<DesignAreaBody> createState() => _DesignAreaBodyState();
 }
-
 class _DesignAreaBodyState extends State<DesignAreaBody> {
   static const double _targetAspectRatio = 1.5 / 2.0;
-
   bool _dragging = false;
-
+  bool _loadingDesign = false;
   Uint8List _cropToTargetRatio(List<int> bytes) {
     final image = img.decodeImage(
       Uint8List.fromList(bytes),
     );
-
     if (image == null) {
       return Uint8List.fromList(bytes);
     }
-
     final sourceRatio = image.width / image.height;
-
     if (sourceRatio > _targetAspectRatio) {
       final cropWidth =
           (image.height * _targetAspectRatio).round();
-
       final offsetX =
           ((image.width - cropWidth) / 2).round();
-
       final cropped = img.copyCrop(
         image,
         x: offsetX,
@@ -207,18 +181,14 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
         width: cropWidth,
         height: image.height,
       );
-
       return Uint8List.fromList(
         img.encodePng(cropped),
       );
     }
-
     final cropHeight =
         (image.width / _targetAspectRatio).round();
-
     final offsetY =
         ((image.height - cropHeight) / 2).round();
-
     final cropped = img.copyCrop(
       image,
       x: 0,
@@ -226,12 +196,10 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
       width: image.width,
       height: cropHeight,
     );
-
     return Uint8List.fromList(
       img.encodePng(cropped),
     );
   }
-
   Future<void> _pick(MachineService service) async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -247,31 +215,42 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
         ],
         withData: true,
       );
-
       if (result == null || result.files.isEmpty) {
         return;
       }
-
       final file = result.files.first;
       final bytes = file.bytes;
-
       if (bytes == null) {
         _showError(
           'Could not read file bytes for "${file.name}".',
         );
         return;
       }
-
-      await _loadDesign(
-        service,
-        bytes,
-        file.name,
-      );
+      setState(() {
+        _loadingDesign = true;
+      });
+      try {
+        await _loadDesign(
+          service,
+          bytes,
+          file.name,
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _loadingDesign = false;
+          });
+        }
+      }
     } catch (error) {
+      if (mounted) {
+        setState(() {
+          _loadingDesign = false;
+        });
+      }
       _showError('Upload failed: $error');
     }
   }
-
   Future<void> _loadDesign(
     MachineService service,
     List<int> bytes,
@@ -284,22 +263,18 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
       );
       return;
     }
-
     final croppedBytes = Uint8List.fromList(
       _cropToTargetRatio(bytes),
     );
-
     await service.loadDesignImage(
       croppedBytes,
       fileName,
     );
   }
-
   void _showError(String message) {
     if (!mounted) {
       return;
     }
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
@@ -307,13 +282,11 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     final service = context.watch<MachineService>();
     final localization = context.watch<LocaleController>();
     final t = localization.l10n;
-
     return DropTarget(
       onDragEntered: (_) {
         setState(() {
@@ -329,16 +302,15 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
         setState(() {
           _dragging = false;
         });
-
         if (details.files.isEmpty) {
           return;
         }
-
         final file = details.files.first;
-
+        setState(() {
+          _loadingDesign = true;
+        });
         try {
           final bytes = await file.readAsBytes();
-
           await _loadDesign(
             service,
             bytes,
@@ -346,6 +318,12 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
           );
         } catch (error) {
           _showError('Upload failed: $error');
+        } finally {
+          if (mounted) {
+            setState(() {
+              _loadingDesign = false;
+            });
+          }
         }
       },
       child: Padding(
@@ -353,11 +331,29 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
         child: Row(
           children: [
             Expanded(
-              child: _DesignDropArea(
-                dragging: _dragging,
-                service: service,
-                localization: t,
-                onBrowse: () => _pick(service),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  const aspectRatio = 1.5 / 2.0;
+                  final width =
+                      constraints.maxWidth < constraints.maxHeight * aspectRatio
+                          ? constraints.maxWidth
+                          : constraints.maxHeight * aspectRatio;
+                  final height = width / aspectRatio;
+                  return Align(
+                    alignment: Alignment.topCenter,
+                    child: SizedBox(
+                      width: width,
+                      height: height,
+                      child: _DesignDropArea(
+                        dragging: _dragging,
+                        loading: _loadingDesign,
+                        service: service,
+                        localization: t,
+                        onBrowse: () => _pick(service),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
             const SizedBox(width: 12),
@@ -374,24 +370,23 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
     );
   }
 }
-
 class _DesignDropArea extends StatelessWidget {
   final bool dragging;
+  final bool loading;
   final MachineService service;
   final L10n localization;
   final VoidCallback onBrowse;
-
   const _DesignDropArea({
     required this.dragging,
+    required this.loading,
     required this.service,
     required this.localization,
     required this.onBrowse,
   });
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onBrowse,
+      onTap: loading ? null : onBrowse,
       child: AnimatedContainer(
         duration: const Duration(
           milliseconds: 150,
@@ -410,8 +405,41 @@ class _DesignDropArea extends StatelessWidget {
       ),
     );
   }
-
   Widget _buildContent() {
+    if (loading) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 30,
+              height: 30,
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                color: HmiColors.accent,
+              ),
+            ),
+            SizedBox(height: 14),
+            Text(
+              'جار تحميل التصميم',
+              style: TextStyle(
+                color: HmiColors.text,
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Please wait…',
+              style: TextStyle(
+                color: HmiColors.textMute,
+                fontSize: 11,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     if (service.isDxfDesign) {
       return Center(
         child: Column(
@@ -442,7 +470,6 @@ class _DesignDropArea extends StatelessWidget {
         ),
       );
     }
-
     if (service.hasDesign) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(10),
@@ -452,7 +479,6 @@ class _DesignDropArea extends StatelessWidget {
         ),
       );
     }
-
     return Center(
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -481,21 +507,17 @@ class _DesignDropArea extends StatelessWidget {
     );
   }
 }
-
 class _DesignControls extends StatelessWidget {
   final MachineService service;
   final L10n localization;
-
   const _DesignControls({
     required this.service,
     required this.localization,
   });
-
   String _label(String key, String fallback) {
     final value = localization.t(key);
     return value == key ? fallback : value;
   }
-
   @override
   Widget build(BuildContext context) {
     final t = localization;
@@ -503,7 +525,6 @@ class _DesignControls extends StatelessWidget {
     final canExtract = service.hasDesign && !extracting;
     final canOptimize =
         service.programPoints.length >= 2 && !extracting;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -627,24 +648,17 @@ class _DesignControls extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 8),
-        const Expanded(
-          child: PathPreview(),
-        ),
       ],
     );
   }
 }
-
 class _ColorSummary extends StatelessWidget {
   final MachineService service;
   final L10n localization;
-
   const _ColorSummary({
     required this.service,
     required this.localization,
   });
-
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -682,7 +696,6 @@ class _ColorSummary extends StatelessWidget {
     );
   }
 }
-
 Future<void> showProgramCodeStudio({
   required BuildContext context,
   required MachineService service,
@@ -716,62 +729,47 @@ Future<void> showProgramCodeStudio({
     },
   );
 }
-
 class _ProgramCodeStudio extends StatefulWidget {
   final MachineService service;
   final L10n localization;
-
   const _ProgramCodeStudio({
     required this.service,
     required this.localization,
   });
-
   @override
   State<_ProgramCodeStudio> createState() =>
       _ProgramCodeStudioState();
 }
-
 class _ProgramCodeStudioState extends State<_ProgramCodeStudio> {
   static const int _maxPreviewLength = 8000;
-
   int _tab = 0;
-
   String _label(String key, String fallback) {
     final value = widget.localization.t(key);
     return value == key ? fallback : value;
   }
-
   String get _displayedGCode {
     final code = widget.service.gCode;
-
     if (code.isEmpty) {
       return '; Extract path to generate G-code';
     }
-
     if (code.length <= _maxPreviewLength) {
       return code;
     }
-
     return '${code.substring(0, _maxPreviewLength)}\n'
         '; … truncated for UI speed';
   }
-
   List<_MCodeRow> get _mCodeRows {
     final used = <String>{};
     final match = RegExp(r'\bM\d+\b');
-
     for (final found in match.allMatches(widget.service.gCode)) {
       used.add(found.group(0)!);
     }
-
     const known = <String, String>{
       'M8': 'Engage needle / tool',
       'M9': 'Disengage needle / tool',
       'M30': 'End of program',
     };
-
     final rows = <_MCodeRow>[];
-
     for (final code in used.toList()..sort()) {
       rows.add(
         _MCodeRow(
@@ -784,7 +782,6 @@ class _ProgramCodeStudioState extends State<_ProgramCodeStudio> {
         ),
       );
     }
-
     for (final macro in widget.service.plcMacros) {
       rows.add(
         _MCodeRow(
@@ -796,17 +793,13 @@ class _ProgramCodeStudioState extends State<_ProgramCodeStudio> {
         ),
       );
     }
-
     return rows;
   }
-
   Future<void> _copy(String text) async {
     await Clipboard.setData(ClipboardData(text: text));
-
     if (!mounted) {
       return;
     }
-
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(_label('copied', 'Copied to clipboard')),
@@ -814,12 +807,10 @@ class _ProgramCodeStudioState extends State<_ProgramCodeStudio> {
       ),
     );
   }
-
   @override
   Widget build(BuildContext context) {
     final service = widget.service;
     final size = MediaQuery.sizeOf(context);
-
     return Center(
       child: Material(
         color: Colors.transparent,
@@ -980,18 +971,15 @@ class _ProgramCodeStudioState extends State<_ProgramCodeStudio> {
     );
   }
 }
-
 class _CodeTab extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onTap;
-
   const _CodeTab({
     required this.label,
     required this.selected,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -1026,16 +1014,12 @@ class _CodeTab extends StatelessWidget {
     );
   }
 }
-
 class _GCodeEditor extends StatelessWidget {
   final String text;
-
   const _GCodeEditor({required this.text});
-
   @override
   Widget build(BuildContext context) {
     final lines = text.split('\n');
-
     return Scrollbar(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(14),
@@ -1049,17 +1033,14 @@ class _GCodeEditor extends StatelessWidget {
       ),
     );
   }
-
   TextSpan _spanForLine(String line) {
     const base = TextStyle(
       fontFamily: 'Consolas',
       fontSize: 12,
       height: 1.4,
     );
-
     final trimmed = line.trimLeft();
     Color color = HmiColors.previewPath;
-
     if (trimmed.startsWith(';')) {
       color = HmiColors.textMute;
     } else if (RegExp(r'^M\d+').hasMatch(trimmed)) {
@@ -1067,21 +1048,18 @@ class _GCodeEditor extends StatelessWidget {
     } else if (RegExp(r'^G\d+').hasMatch(trimmed)) {
       color = HmiColors.dro;
     }
-
     return TextSpan(
       text: '$line\n',
       style: base.copyWith(color: color),
     );
   }
 }
-
 class _MCodeRow {
   final String code;
   final String name;
   final String note;
   final bool runnable;
   final PlcMacro? macro;
-
   const _MCodeRow({
     required this.code,
     required this.name,
@@ -1090,16 +1068,13 @@ class _MCodeRow {
     this.macro,
   });
 }
-
 class _MCodeTable extends StatelessWidget {
   final List<_MCodeRow> rows;
   final ValueChanged<PlcMacro> onRun;
-
   const _MCodeTable({
     required this.rows,
     required this.onRun,
   });
-
   @override
   Widget build(BuildContext context) {
     if (rows.isEmpty) {
@@ -1110,7 +1085,6 @@ class _MCodeTable extends StatelessWidget {
         ),
       );
     }
-
     return ListView.separated(
       padding: const EdgeInsets.all(10),
       itemCount: rows.length,
@@ -1120,7 +1094,6 @@ class _MCodeTable extends StatelessWidget {
       ),
       itemBuilder: (context, index) {
         final row = rows[index];
-
         return ListTile(
           dense: true,
           leading: Container(
@@ -1178,15 +1151,12 @@ class _MCodeTable extends StatelessWidget {
     );
   }
 }
-
 class DiagnosisAreaBody extends StatelessWidget {
   const DiagnosisAreaBody({super.key});
-
   @override
   Widget build(BuildContext context) {
     final service = context.watch<MachineService>();
     final status = service.status;
-
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -1252,7 +1222,6 @@ class DiagnosisAreaBody extends StatelessWidget {
       ],
     );
   }
-
   Widget _infoRow(
     String label,
     String value,
@@ -1286,14 +1255,11 @@ class DiagnosisAreaBody extends StatelessWidget {
     );
   }
 }
-
 class SetupAreaBody extends StatelessWidget {
   const SetupAreaBody({super.key});
-
   @override
   Widget build(BuildContext context) {
     final service = context.watch<MachineService>();
-
     return ListView(
       padding: const EdgeInsets.all(20),
       children: [
@@ -1366,7 +1332,6 @@ class SetupAreaBody extends StatelessWidget {
           keyboardType: TextInputType.number,
           onChanged: (value) {
             final baud = int.tryParse(value);
-
             if (baud != null) {
               service.setSetup(
                 baud: baud,

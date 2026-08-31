@@ -11,6 +11,8 @@ class ModeSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final svc = context.watch<MachineService>();
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
 
     const modes = [
       MachineMode.jog,
@@ -29,20 +31,20 @@ class ModeSelector extends StatelessWidget {
 
     return Container(
       height: 40,
-      color: HmiColors.panelAlt,
+      color: colors.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 10),
       child: Row(
         children: [
-          const Text(
+          Text(
             'MODE',
-            style: TextStyle(
-              color: HmiColors.textMute,
-              fontSize: 10,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: colors.onSurface.withValues(alpha: 0.55),
               fontWeight: FontWeight.w800,
               letterSpacing: 0.8,
             ),
           ),
           const SizedBox(width: 12),
+
           for (final mode in modes)
             Padding(
               padding: const EdgeInsets.only(right: 6),
@@ -52,7 +54,9 @@ class ModeSelector extends StatelessWidget {
                 onTap: () => svc.setMode(mode),
               ),
             ),
+
           const Spacer(),
+
           Container(
             padding: const EdgeInsets.symmetric(
               horizontal: 10,
@@ -94,16 +98,29 @@ class _ModeChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+
+    final backgroundColor = active
+        ? colors.primaryContainer
+        : colors.surface;
+
+    final borderColor = active
+        ? colors.primary
+        : colors.outline;
+
+    final textColor = active
+        ? colors.onPrimaryContainer
+        : colors.onSurface.withValues(alpha: 0.75);
+
     return Material(
-      color: active
-          ? HmiColors.softkeyActive
-          : HmiColors.softkey,
+      color: backgroundColor,
       borderRadius: BorderRadius.circular(5),
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(5),
-        splashColor: HmiColors.accent.withValues(alpha: 0.12),
-        highlightColor: HmiColors.accent.withValues(alpha: 0.06),
+        splashColor: colors.primary.withValues(alpha: 0.12),
+        highlightColor: colors.primary.withValues(alpha: 0.06),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           padding: const EdgeInsets.symmetric(
@@ -113,18 +130,14 @@ class _ModeChip extends StatelessWidget {
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(5),
             border: Border.all(
-              color: active
-                  ? HmiColors.accent
-                  : HmiColors.border,
+              color: borderColor,
               width: active ? 1.2 : 1,
             ),
           ),
           child: Text(
             label,
             style: TextStyle(
-              color: active
-                  ? HmiColors.text
-                  : HmiColors.textDim,
+              color: textColor,
               fontWeight: FontWeight.w800,
               fontSize: 11,
               letterSpacing: 0.3,

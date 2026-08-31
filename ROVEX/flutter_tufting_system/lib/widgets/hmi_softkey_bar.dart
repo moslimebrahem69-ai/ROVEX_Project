@@ -13,6 +13,8 @@ class HmiSoftkeyBar extends StatelessWidget {
   Widget build(BuildContext context) {
     final svc = context.watch<MachineService>();
     final loc = context.watch<LocaleController>();
+    
+
     final t = loc.l10n;
 
     final items = [
@@ -44,6 +46,7 @@ class HmiSoftkeyBar extends StatelessWidget {
               ),
             ),
           ),
+
           Expanded(
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -65,8 +68,13 @@ class HmiSoftkeyBar extends StatelessWidget {
               ),
             ),
           ),
+
           _langBtn(loc),
+
           const SizedBox(width: 6),
+
+          
+
           _linkBadge(svc),
         ],
       ),
@@ -100,6 +108,8 @@ class HmiSoftkeyBar extends StatelessWidget {
     );
   }
 
+  
+
   Widget _linkBadge(MachineService svc) {
     final connected = svc.runtimeLinked || svc.status.connected;
 
@@ -123,7 +133,9 @@ class HmiSoftkeyBar extends StatelessWidget {
             ? 'C'
             : (svc.status.connected ? 'SIM' : 'OFF'),
         style: TextStyle(
-          color: connected ? HmiColors.ready : HmiColors.alarm,
+          color: connected
+              ? HmiColors.ready
+              : HmiColors.alarm,
           fontSize: 10,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.5,

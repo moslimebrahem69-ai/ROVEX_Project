@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -17,12 +18,14 @@ class PathPreview extends StatefulWidget {
 class _PathPreviewState extends State<PathPreview>
     with SingleTickerProviderStateMixin {
   late final AnimationController _needleController;
+
   bool _colorDialogOpen = false;
   int _lastSpeed = -1;
 
   @override
   void initState() {
     super.initState();
+
     _needleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 420),
@@ -36,12 +39,19 @@ class _PathPreviewState extends State<PathPreview>
   }
 
   void _syncNeedleSpeed(int speed) {
-    final safeSpeed = speed.clamp(10, 200);
-    if (safeSpeed == _lastSpeed) return;
+    final safeSpeed = speed.clamp(10, 200).toInt();
+
+    if (safeSpeed == _lastSpeed) {
+      return;
+    }
 
     _lastSpeed = safeSpeed;
+
+    final durationMs =
+        (42000 / safeSpeed).round().clamp(100, 1200).toInt();
+
     _needleController.duration = Duration(
-      milliseconds: (42000 / safeSpeed).round().clamp(100, 1200),
+      milliseconds: durationMs,
     );
 
     if (!_needleController.isAnimating) {
@@ -53,12 +63,16 @@ class _PathPreviewState extends State<PathPreview>
     BuildContext context,
     MachineService svc,
   ) {
-    if (_colorDialogOpen || !svc.colorCompletionPending) return;
+    if (_colorDialogOpen || !svc.colorCompletionPending) {
+      return;
+    }
 
     _colorDialogOpen = true;
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       final completedGroup = svc.completedColorGroup;
       final nextGroup = svc.nextColorGroup;
@@ -132,12 +146,16 @@ class _PathPreviewState extends State<PathPreview>
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
+                onPressed: () {
+                  Navigator.of(dialogContext).pop(false);
+                },
                 child: const Text('CANCEL'),
               ),
               if (nextGroup != null)
                 ElevatedButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop(true);
+                  },
                   child: const Text('CONTINUE'),
                 ),
             ],
@@ -145,7 +163,9 @@ class _PathPreviewState extends State<PathPreview>
         },
       );
 
-      if (!mounted) return;
+      if (!mounted) {
+        return;
+      }
 
       _colorDialogOpen = false;
 
@@ -160,12 +180,15 @@ class _PathPreviewState extends State<PathPreview>
   @override
   Widget build(BuildContext context) {
     final svc = context.watch<MachineService>();
-    final pts = svc.programPoints;
-    final s = svc.status;
+
+    final points = svc.programPoints;
+    final status = svc.status;
     final colorGroups = svc.colorGroups;
     final activeColor = svc.activeColorOrder;
+    final gCode = svc.gCode;
+    final designImage = svc.designImage;
 
-    _syncNeedleSpeed(s.feedOverride);
+    _syncNeedleSpeed(status.feedOverride);
 
     if (svc.colorCompletionPending) {
       _showColorChangeDialog(context, svc);
@@ -176,18 +199,26 @@ class _PathPreviewState extends State<PathPreview>
       child: Stack(
         fit: StackFit.expand,
         children: [
+          if (designImage != null && !svc.isDxfDesign)
+            _DesignBackground(
+              bytes: designImage,
+            ),
+
           CustomPaint(
             painter: _PathPainter(
-              points: pts,
+              points: points,
               colorGroups: colorGroups,
-              headX: s.x,
-              headY: s.y,
-              progressIndex: s.pathIndex,
+              gCode: gCode,
+              headX: status.x,
+              headY: status.y,
+              headZ: status.z,
+              progressIndex: status.pathIndex,
               needleProgress: _needleController.value,
-              needleDown: s.needle,
+              needleDown: status.needle,
             ),
           ),
-          if (pts.isEmpty)
+
+          if (points.isEmpty)
             const Center(
               child: Text(
                 'No toolpath loaded\nOpen DESIGN → Optimize → Load to AUTO',
@@ -198,20 +229,22 @@ class _PathPreviewState extends State<PathPreview>
                 ),
               ),
             ),
-          if (pts.isNotEmpty)
+
+          if (points.isNotEmpty)
             Align(
               alignment: Alignment.topLeft,
               child: Padding(
                 padding: const EdgeInsets.all(10),
-                child: Text(
-                  svc.loadedProgramName ?? svc.designName ?? 'PROGRAM',
-                  style: const TextStyle(
-                    color: HmiColors.textDim,
-                    fontSize: 12,
-                  ),
+                child: _ProgramInfo(
+                  name: svc.loadedProgramName ??
+                      svc.designName ??
+                      'PROGRAM',
+                  z: status.z,
+                  gCodeLoaded: gCode.isNotEmpty,
                 ),
               ),
             ),
+
           if (colorGroups.isNotEmpty)
             Align(
               alignment: Alignment.topRight,
@@ -223,13 +256,19 @@ class _PathPreviewState extends State<PathPreview>
                 ),
               ),
             ),
-          if (pts.isNotEmpty)
+
+          if (points.isNotEmpty)
             Align(
               alignment: Alignment.bottomCenter,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
+                padding: const EdgeInsets.fromLTRB(
+                  12,
+                  12,
+                  12,
+                  14,
+                ),
                 child: _PreviewSpeedControl(
-                  speed: s.feedOverride,
+                  speed: status.feedOverride,
                   enabled: !svc.runtimeLinked,
                   onChanged: (value) {
                     svc.setFeedOverride(value.round());
@@ -237,6 +276,98 @@ class _PathPreviewState extends State<PathPreview>
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DesignBackground extends StatelessWidget {
+  final Uint8List bytes;
+
+  const _DesignBackground({
+    required this.bytes,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Center(
+        child: Opacity(
+          opacity: 0.22,
+          child: Image.memory(
+            bytes,
+            fit: BoxFit.contain,
+            filterQuality: FilterQuality.high,
+            gaplessPlayback: true,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ProgramInfo extends StatelessWidget {
+  final String name;
+  final double z;
+  final bool gCodeLoaded;
+
+  const _ProgramInfo({
+    required this.name,
+    required this.z,
+    required this.gCodeLoaded,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 7,
+      ),
+      decoration: BoxDecoration(
+        color: HmiColors.panel.withValues(alpha: 0.90),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(
+          color: HmiColors.border,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            name,
+            style: const TextStyle(
+              color: HmiColors.textDim,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Container(
+            width: 1,
+            height: 15,
+            color: HmiColors.border,
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Z ${z.toStringAsFixed(2)}',
+            style: TextStyle(
+              color: z <= 2.5
+                  ? HmiColors.accent
+                  : HmiColors.textDim,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (gCodeLoaded) ...[
+            const SizedBox(width: 10),
+            const Icon(
+              Icons.route,
+              size: 14,
+              color: HmiColors.accent,
+            ),
+          ],
         ],
       ),
     );
@@ -260,11 +391,18 @@ class _PreviewSpeedControl extends StatelessWidget {
 
     return Container(
       width: 360,
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+      padding: const EdgeInsets.fromLTRB(
+        14,
+        8,
+        14,
+        10,
+      ),
       decoration: BoxDecoration(
         color: HmiColors.panel.withValues(alpha: 0.94),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: HmiColors.border),
+        border: Border.all(
+          color: HmiColors.border,
+        ),
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -288,7 +426,7 @@ class _PreviewSpeedControl extends StatelessWidget {
                 ),
               ),
               Text(
-                '$speed%',
+                '${speed.clamp(10, 200)}%',
                 style: const TextStyle(
                   color: HmiColors.text,
                   fontSize: 12,
@@ -302,7 +440,9 @@ class _PreviewSpeedControl extends StatelessWidget {
               IconButton(
                 visualDensity: VisualDensity.compact,
                 onPressed: enabled
-                    ? () => onChanged((value - 10).clamp(10, 200))
+                    ? () => onChanged(
+                          (value - 10).clamp(10, 200),
+                        )
                     : null,
                 icon: const Icon(Icons.remove),
                 color: HmiColors.textDim,
@@ -319,7 +459,9 @@ class _PreviewSpeedControl extends StatelessWidget {
               IconButton(
                 visualDensity: VisualDensity.compact,
                 onPressed: enabled
-                    ? () => onChanged((value + 10).clamp(10, 200))
+                    ? () => onChanged(
+                          (value + 10).clamp(10, 200),
+                        )
                     : null,
                 icon: const Icon(Icons.add),
                 color: HmiColors.textDim,
@@ -335,7 +477,9 @@ class _PreviewSpeedControl extends StatelessWidget {
 class _ColorDot extends StatelessWidget {
   final Color color;
 
-  const _ColorDot({required this.color});
+  const _ColorDot({
+    required this.color,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -345,7 +489,9 @@ class _ColorDot extends StatelessWidget {
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
-        border: Border.all(color: HmiColors.border),
+        border: Border.all(
+          color: HmiColors.border,
+        ),
       ),
     );
   }
@@ -362,20 +508,28 @@ class _ColorLegend extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final activeText = activeOrder == null
+        ? ''
+        : '  ·  now: $activeOrder/${groups.length}';
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      padding: const EdgeInsets.symmetric(
+        horizontal: 10,
+        vertical: 6,
+      ),
       decoration: BoxDecoration(
         color: HmiColors.panel.withValues(alpha: 0.92),
         borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: HmiColors.border),
+        border: Border.all(
+          color: HmiColors.border,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'Colors: ${groups.length}'
-            '${activeOrder != null ? '  ·  now: $activeOrder/${groups.length}' : ''}',
+            'Colors: ${groups.length}$activeText',
             style: const TextStyle(
               color: HmiColors.textDim,
               fontSize: 11,
@@ -396,7 +550,9 @@ class _ColorLegend extends StatelessWidget {
                   color: Color(group.colorValue),
                   shape: BoxShape.circle,
                   border: Border.all(
-                    color: isActive ? HmiColors.accent : HmiColors.border,
+                    color: isActive
+                        ? HmiColors.accent
+                        : HmiColors.border,
                     width: isActive ? 2.5 : 1,
                   ),
                 ),
@@ -409,167 +565,966 @@ class _ColorLegend extends StatelessWidget {
   }
 }
 
+enum _GCodeMotionType {
+  rapid,
+  linear,
+  clockwiseArc,
+  counterClockwiseArc,
+}
+
+class _GCodeMotion {
+  final _GCodeMotionType type;
+  final double fromX;
+  final double fromY;
+  final double toX;
+  final double toY;
+  final double? i;
+  final double? j;
+  final double z;
+  final int sequence;
+
+  const _GCodeMotion({
+    required this.type,
+    required this.fromX,
+    required this.fromY,
+    required this.toX,
+    required this.toY,
+    required this.z,
+    required this.sequence,
+    this.i,
+    this.j,
+  });
+
+  bool get isCutting {
+    return type == _GCodeMotionType.linear ||
+        type == _GCodeMotionType.clockwiseArc ||
+        type == _GCodeMotionType.counterClockwiseArc;
+  }
+}
+
+class _GCodeParser {
+  static final RegExp _commandPattern = RegExp(
+    r'\b(G0|G00|G1|G01|G2|G02|G3|G03)\b',
+    caseSensitive: false,
+  );
+
+  static final RegExp _xPattern = RegExp(
+    r'\bX\s*(-?\d+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _yPattern = RegExp(
+    r'\bY\s*(-?\d+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _zPattern = RegExp(
+    r'\bZ\s*(-?\d+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _iPattern = RegExp(
+    r'\bI\s*(-?\d+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  static final RegExp _jPattern = RegExp(
+    r'\bJ\s*(-?\d+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+
+  static List<_GCodeMotion> parse(String source) {
+    if (source.trim().isEmpty) {
+      return const [];
+    }
+
+    final motions = <_GCodeMotion>[];
+
+    double x = 0;
+    double y = 0;
+    double z = 5;
+
+    _GCodeMotionType? modalType;
+
+    var sequence = 0;
+
+    for (final rawLine in source.split(RegExp(r'\r?\n'))) {
+      final withoutComment = rawLine.split(';').first.trim();
+
+      if (withoutComment.isEmpty) {
+        continue;
+      }
+
+      final commandMatch = _commandPattern.firstMatch(
+        withoutComment,
+      );
+
+      if (commandMatch != null) {
+        final command = commandMatch.group(1)!.toUpperCase();
+
+        switch (command) {
+          case 'G0':
+          case 'G00':
+            modalType = _GCodeMotionType.rapid;
+            break;
+
+          case 'G1':
+          case 'G01':
+            modalType = _GCodeMotionType.linear;
+            break;
+
+          case 'G2':
+          case 'G02':
+            modalType = _GCodeMotionType.clockwiseArc;
+            break;
+
+          case 'G3':
+          case 'G03':
+            modalType = _GCodeMotionType.counterClockwiseArc;
+            break;
+        }
+      }
+
+      final xMatch = _xPattern.firstMatch(withoutComment);
+      final yMatch = _yPattern.firstMatch(withoutComment);
+      final zMatch = _zPattern.firstMatch(withoutComment);
+
+      final newX = xMatch == null
+          ? x
+          : double.tryParse(xMatch.group(1)!);
+
+      final newY = yMatch == null
+          ? y
+          : double.tryParse(yMatch.group(1)!);
+
+      final newZ = zMatch == null
+          ? z
+          : double.tryParse(zMatch.group(1)!);
+
+      if (newX == null || newY == null || newZ == null) {
+        continue;
+      }
+
+      final hasXY = xMatch != null || yMatch != null;
+
+      if (!hasXY && zMatch == null) {
+        continue;
+      }
+
+      final motionType = modalType;
+
+      if (motionType == null) {
+        x = newX;
+        y = newY;
+        z = newZ;
+        continue;
+      }
+
+      final iMatch = _iPattern.firstMatch(withoutComment);
+      final jMatch = _jPattern.firstMatch(withoutComment);
+
+      final i = iMatch == null
+          ? null
+          : double.tryParse(iMatch.group(1)!);
+
+      final j = jMatch == null
+          ? null
+          : double.tryParse(jMatch.group(1)!);
+
+      if (newX != x ||
+          newY != y ||
+          motionType != null) {
+        motions.add(
+          _GCodeMotion(
+            type: motionType,
+            fromX: x,
+            fromY: y,
+            toX: newX,
+            toY: newY,
+            z: newZ,
+            sequence: sequence++,
+            i: i,
+            j: j,
+          ),
+        );
+      }
+
+      x = newX;
+      y = newY;
+      z = newZ;
+    }
+
+    return motions;
+  }
+}
+
 class _PathPainter extends CustomPainter {
   final List<TuftPoint> points;
   final List<ColorGroup> colorGroups;
+  final String gCode;
+
   final double headX;
   final double headY;
+  final double headZ;
+
   final int progressIndex;
+
   final double needleProgress;
   final bool needleDown;
 
   const _PathPainter({
     required this.points,
     required this.colorGroups,
+    required this.gCode,
     required this.headX,
     required this.headY,
+    required this.headZ,
     required this.progressIndex,
     required this.needleProgress,
     required this.needleDown,
   });
 
   @override
-  void paint(Canvas canvas, Size size) {
-    _drawGrid(canvas, size);
+  void paint(
+    Canvas canvas,
+    Size size,
+  ) {
+    if (points.isEmpty && gCode.trim().isEmpty) {
+      _drawGrid(canvas, size);
+      return;
+    }
 
-    if (points.isEmpty) return;
+    final motions = _GCodeParser.parse(gCode);
 
-    final bounds = _getBounds();
+    if (motions.isEmpty) {
+      _paintPointFallback(
+        canvas,
+        size,
+      );
+      return;
+    }
+
+    final bounds = _getMotionBounds(motions);
+
+    final map = _createMapper(
+      size,
+      bounds,
+    );
+
+    _drawGrid(
+      canvas,
+      size,
+    );
+
+    _drawGCodePath(
+      canvas,
+      map,
+      motions,
+    );
+
+    _drawExecutedGCode(
+      canvas,
+      map,
+      motions,
+    );
+
+    _drawGun(
+      canvas,
+      map,
+    );
+  }
+
+  void _drawGrid(
+    Canvas canvas,
+    Size size,
+  ) {
+    final grid = Paint()
+      ..color = HmiColors.border.withValues(alpha: 0.16)
+      ..strokeWidth = 1;
+
+    for (double x = 0; x < size.width; x += 40) {
+      canvas.drawLine(
+        Offset(x, 0),
+        Offset(x, size.height),
+        grid,
+      );
+    }
+
+    for (double y = 0; y < size.height; y += 40) {
+      canvas.drawLine(
+        Offset(0, y),
+        Offset(size.width, y),
+        grid,
+      );
+    }
+  }
+
+  List<double> _getMotionBounds(
+    List<_GCodeMotion> motions,
+  ) {
+    double minX = motions.first.fromX;
+    double maxX = motions.first.fromX;
+    double minY = motions.first.fromY;
+    double maxY = motions.first.fromY;
+
+    void include(
+      double x,
+      double y,
+    ) {
+      if (x < minX) {
+        minX = x;
+      }
+
+      if (x > maxX) {
+        maxX = x;
+      }
+
+      if (y < minY) {
+        minY = y;
+      }
+
+      if (y > maxY) {
+        maxY = y;
+      }
+    }
+
+    for (final motion in motions) {
+      include(
+        motion.fromX,
+        motion.fromY,
+      );
+
+      include(
+        motion.toX,
+        motion.toY,
+      );
+
+      if (motion.isCutting &&
+          (motion.type == _GCodeMotionType.clockwiseArc ||
+              motion.type ==
+                  _GCodeMotionType.counterClockwiseArc)) {
+        final samples = _arcSamples(
+          motion,
+          sampleCount: 48,
+        );
+
+        for (final point in samples) {
+          include(
+            point.dx,
+            point.dy,
+          );
+        }
+      }
+    }
+
+    if ((maxX - minX).abs() < 1) {
+      maxX = minX + 1;
+    }
+
+    if ((maxY - minY).abs() < 1) {
+      maxY = minY + 1;
+    }
+
+    return [
+      minX,
+      maxX,
+      minY,
+      maxY,
+    ];
+  }
+
+  Offset Function(double, double) _createMapper(
+    Size size,
+    List<double> bounds,
+  ) {
     final minX = bounds[0];
     final maxX = bounds[1];
     final minY = bounds[2];
     final maxY = bounds[3];
-    final spanX = (maxX - minX).abs() < 1 ? 1.0 : maxX - minX;
-    final spanY = (maxY - minY).abs() < 1 ? 1.0 : maxY - minY;
-    const pad = 40.0;
 
-    Offset map(double x, double y) {
-      final nx = pad + ((x - minX) / spanX) * (size.width - pad * 2);
-      final ny = size.height -
-          pad -
-          ((y - minY) / spanY) * (size.height - pad * 2);
-      return Offset(nx, ny);
-    }
+    final spanX = math.max(
+      1.0,
+      maxX - minX,
+    );
 
-    _drawUnexecutedPath(canvas, map, progressIndex);
-    _drawStitches(canvas, map, progressIndex);
-    _drawGun(canvas, map);
+    final spanY = math.max(
+      1.0,
+      maxY - minY,
+    );
+
+    const pad = 42.0;
+
+    final availableWidth = math.max(
+      1.0,
+      size.width - pad * 2,
+    );
+
+    final availableHeight = math.max(
+      1.0,
+      size.height - pad * 2,
+    );
+
+    final scale = math.min(
+      availableWidth / spanX,
+      availableHeight / spanY,
+    );
+
+    final drawnWidth = spanX * scale;
+    final drawnHeight = spanY * scale;
+    final offsetX =
+        (size.width - drawnWidth) / 2;
+
+    final offsetY =
+        (size.height - drawnHeight) / 2;
+
+    return (
+      double x,
+      double y,
+    ) {
+      return Offset(
+        offsetX + (x - minX) * scale,
+        size.height -
+            offsetY -
+            (y - minY) * scale,
+      );
+    };
   }
 
-  void _drawGrid(Canvas canvas, Size size) {
-    final grid = Paint()
-      ..color = HmiColors.border.withValues(alpha: 0.35)
-      ..strokeWidth = 1;
+  void _drawGCodePath(
+    Canvas canvas,
+    Offset Function(double, double) map,
+    List<_GCodeMotion> motions,
+  ) {
+    for (final motion in motions) {
+      if (motion.fromX == motion.toX &&
+          motion.fromY == motion.toY) {
+        continue;
+      }
 
-    for (double x = 0; x < size.width; x += 40) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), grid);
-    }
+      if (motion.type == _GCodeMotionType.rapid) {
+        _drawRapidMove(
+          canvas,
+          map,
+          motion,
+        );
+        continue;
+      }
 
-    for (double y = 0; y < size.height; y += 40) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), grid);
+      final color = _colorForSequence(
+        motion.sequence,
+      );
+
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.4
+        ..strokeCap = StrokeCap.round
+        ..color = color.withValues(alpha: 0.28);
+
+      if (motion.type == _GCodeMotionType.linear) {
+        canvas.drawLine(
+          map(
+            motion.fromX,
+            motion.fromY,
+          ),
+          map(
+            motion.toX,
+            motion.toY,
+          ),
+          paint,
+        );
+      } else {
+        _drawArc(
+          canvas,
+          map,
+          motion,
+          paint,
+        );
+      }
     }
   }
 
-  List<double> _getBounds() {
+  void _drawExecutedGCode(
+    Canvas canvas,
+    Offset Function(double, double) map,
+    List<_GCodeMotion> motions,
+  ) {
+    final cuttingMotions =
+        motions.where((motion) => motion.isCutting).toList();
+
+    if (cuttingMotions.isEmpty) {
+      return;
+    }
+
+    final progress = points.isEmpty
+        ? 0.0
+        : (progressIndex / points.length)
+            .clamp(0.0, 1.0)
+            .toDouble();
+
+    final visibleCount =
+        (cuttingMotions.length * progress)
+            .round()
+            .clamp(0, cuttingMotions.length)
+            .toInt();
+
+    for (var i = 0; i < visibleCount; i++) {
+      final motion = cuttingMotions[i];
+
+      final color = _colorForSequence(
+        motion.sequence,
+      );
+
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.0
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = color;
+
+      if (motion.type == _GCodeMotionType.linear) {
+        canvas.drawLine(
+          map(
+            motion.fromX,
+            motion.fromY,
+          ),
+          map(
+            motion.toX,
+            motion.toY,
+          ),
+          paint,
+        );
+      } else {
+        _drawArc(
+          canvas,
+          map,
+          motion,
+          paint,
+        );
+      }
+    }
+
+    if (visibleCount > 0 &&
+        visibleCount <= cuttingMotions.length) {
+      final current =
+          cuttingMotions[visibleCount - 1];
+
+      final currentOffset = map(
+        current.toX,
+        current.toY,
+      );
+
+      final markerPaint = Paint()
+        ..style = PaintingStyle.fill
+        ..color = HmiColors.accent;
+
+      canvas.drawCircle(
+        currentOffset,
+        4.5,
+        markerPaint,
+      );
+    }
+  }
+
+  void _drawRapidMove(
+    Canvas canvas,
+    Offset Function(double, double) map,
+    _GCodeMotion motion,
+  ) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1
+      ..color = HmiColors.textMute.withValues(alpha: 0.20);
+
+    const dashLength = 5.0;
+    const gapLength = 5.0;
+
+    final start = map(
+      motion.fromX,
+      motion.fromY,
+    );
+
+    final end = map(
+      motion.toX,
+      motion.toY,
+    );
+
+    final dx = end.dx - start.dx;
+    final dy = end.dy - start.dy;
+
+    final distance = math.sqrt(
+      dx * dx + dy * dy,
+    );
+
+    if (distance <= 0.1) {
+      return;
+    }
+
+    final ux = dx / distance;
+    final uy = dy / distance;
+
+    double position = 0;
+
+    while (position < distance) {
+      final segmentStart = position;
+
+      final segmentEnd =
+          math.min(
+        position + dashLength,
+        distance,
+      );
+
+      canvas.drawLine(
+        Offset(
+          start.dx + ux * segmentStart,
+          start.dy + uy * segmentStart,
+        ),
+        Offset(
+          start.dx + ux * segmentEnd,
+          start.dy + uy * segmentEnd,
+        ),
+        paint,
+      );
+
+      position += dashLength + gapLength;
+    }
+  }
+
+  void _drawArc(
+    Canvas canvas,
+    Offset Function(double, double) map,
+    _GCodeMotion motion,
+    Paint paint,
+  ) {
+    final samples = _arcSamples(
+      motion,
+      sampleCount: 64,
+    );
+
+    if (samples.length < 2) {
+      return;
+    }
+
+    final path = Path();
+
+    final first = samples.first;
+
+    final firstMapped = map(
+      first.dx,
+      first.dy,
+    );
+
+    path.moveTo(
+      firstMapped.dx,
+      firstMapped.dy,
+    );
+
+    for (var i = 1; i < samples.length; i++) {
+      final point = samples[i];
+
+      final mapped = map(
+        point.dx,
+        point.dy,
+      );
+
+      path.lineTo(
+        mapped.dx,
+        mapped.dy,
+      );
+    }
+
+    canvas.drawPath(
+      path,
+      paint,
+    );
+  }
+
+  List<Offset> _arcSamples(
+    _GCodeMotion motion, {
+    required int sampleCount,
+  }) {
+    if (motion.i == null || motion.j == null) {
+      return [
+        Offset(
+          motion.fromX,
+          motion.fromY,
+        ),
+        Offset(
+          motion.toX,
+          motion.toY,
+        ),
+      ];
+    }
+
+    final centerX =
+        motion.fromX + motion.i!;
+
+    final centerY =
+        motion.fromY + motion.j!;
+
+    final startX =
+        motion.fromX - centerX;
+
+    final startY =
+        motion.fromY - centerY;
+
+    final endX =
+        motion.toX - centerX;
+
+    final endY =
+        motion.toY - centerY;
+
+    final radius = math.sqrt(
+      startX * startX +
+          startY * startY,
+    );
+
+    if (radius <= 0.0001) {
+      return [
+        Offset(
+          motion.fromX,
+          motion.fromY,
+        ),
+        Offset(
+          motion.toX,
+          motion.toY,
+        ),
+      ];
+    }
+
+    final startAngle = math.atan2(
+      startY,
+      startX,
+    );
+
+    final endAngle = math.atan2(
+      endY,
+      endX,
+    );
+
+    var delta =
+        endAngle - startAngle;
+
+    if (motion.type ==
+        _GCodeMotionType.clockwiseArc) {
+      while (delta >= 0) {
+        delta -= math.pi * 2;
+      }
+    } else {
+      while (delta <= 0) {
+        delta += math.pi * 2;
+      }
+    }
+
+    final steps = math.max(
+      12,
+      (sampleCount *
+              delta.abs() /
+              (math.pi * 2))
+          .round(),
+    );
+
+    final result = <Offset>[];
+
+    for (var i = 0; i <= steps; i++) {
+      final t = i / steps;
+
+      final angle =
+          startAngle + delta * t;
+
+      result.add(
+        Offset(
+          centerX +
+              math.cos(angle) * radius,
+          centerY +
+              math.sin(angle) * radius,
+        ),
+      );
+    }
+
+    return result;
+  }
+
+  Color _colorForSequence(int sequence) {
+  if (points.isEmpty) {
+    return HmiColors.accent;
+  }
+
+  final index = sequence.clamp(
+    0,
+    points.length - 1,
+  ).toInt();
+
+  return _colorForPoint(points[index]);
+}
+
+  Color _colorForPoint(TuftPoint point) {
+  final order = point.colorOrder;
+
+  if (order != null) {
+    for (final group in colorGroups) {
+      if (group.order == order) {
+        return Color(group.colorValue);
+      }
+    }
+  }
+
+  return Color(point.colorValue!);
+  
+}
+
+  void _paintPointFallback(
+    Canvas canvas,
+    Size size,
+  ) {
+    _drawGrid(
+      canvas,
+      size,
+    );
+
+    if (points.isEmpty) {
+      return;
+    }
+
+    final bounds = _getPointBounds();
+
+    final map = _createMapper(
+      size,
+      bounds,
+    );
+
+    final progress =
+        (progressIndex / points.length)
+            .clamp(0.0, 1.0)
+            .toDouble();
+
+    final visibleCount =
+        (points.length * progress)
+            .round()
+            .clamp(0, points.length)
+            .toInt();
+
+    for (var i = 1; i < points.length; i++) {
+      final a = points[i - 1];
+      final b = points[i];
+
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth =
+            i <= visibleCount ? 2.5 : 1.2
+        ..strokeCap = StrokeCap.round
+        ..color = _colorForPoint(b).withValues(
+          alpha: i <= visibleCount
+              ? 1.0
+              : 0.25,
+        );
+
+      canvas.drawLine(
+        map(
+          a.x,
+          a.y,
+        ),
+        map(
+          b.x,
+          b.y,
+        ),
+        paint,
+      );
+    }
+
+    _drawGun(
+      canvas,
+      map,
+    );
+  }
+
+  List<double> _getPointBounds() {
     double minX = points.first.x;
     double maxX = points.first.x;
     double minY = points.first.y;
     double maxY = points.first.y;
 
     for (final point in points) {
-      if (point.x < minX) minX = point.x;
-      if (point.x > maxX) maxX = point.x;
-      if (point.y < minY) minY = point.y;
-      if (point.y > maxY) maxY = point.y;
-    }
+      if (point.x < minX) {
+        minX = point.x;
+      }
 
-    return [minX, maxX, minY, maxY];
-  }
+      if (point.x > maxX) {
+        maxX = point.x;
+      }
 
-  Color _colorForPoint(TuftPoint point) {
-    final order = point.colorOrder;
+      if (point.y < minY) {
+        minY = point.y;
+      }
 
-    if (order != null) {
-      for (final group in colorGroups) {
-        if (group.order == order) {
-          return Color(group.colorValue);
-        }
+      if (point.y > maxY) {
+        maxY = point.y;
       }
     }
 
-    if (point.colorValue != null) {
-      return Color(point.colorValue!);
-    }
-
-    return HmiColors.accent;
-  }
-
-  void _drawUnexecutedPath(
-    Canvas canvas,
-    Offset Function(double, double) map,
-    int progressIndex,
-  ) {
-    final paint = Paint()..style = PaintingStyle.fill;
-    final start = progressIndex.clamp(0, points.length);
-
-    for (int i = start; i < points.length; i++) {
-      final point = points[i];
-      paint.color = _colorForPoint(point).withValues(alpha: 0.24);
-      canvas.drawCircle(
-        map(point.x, point.y),
-        2.4,
-        paint,
-      );
-    }
-  }
-
-  void _drawStitches(
-    Canvas canvas,
-    Offset Function(double, double) map,
-    int progressIndex,
-  ) {
-    final paint = Paint()..style = PaintingStyle.fill;
-    final visibleCount = progressIndex.clamp(0, points.length);
-
-    for (int i = 0; i < visibleCount; i++) {
-      final point = points[i];
-      paint.color = _colorForPoint(point);
-
-      canvas.drawCircle(
-        map(point.x, point.y),
-        3.0,
-        paint,
-      );
-    }
+    return [
+      minX,
+      maxX,
+      minY,
+      maxY,
+    ];
   }
 
   void _drawGun(
     Canvas canvas,
     Offset Function(double, double) map,
   ) {
-    final head = map(headX, headY);
+    final head = map(
+      headX,
+      headY,
+    );
+
     final movement = needleDown
-        ? math.sin(needleProgress * math.pi) * 12
+        ? math.sin(
+              needleProgress * math.pi,
+            ) *
+            14.0
         : 0.0;
 
     canvas.save();
-    canvas.translate(head.dx, head.dy - movement);
-    canvas.scale(0.65);
 
-    const gunSize = Size(80, 70);
-    const gunPainter = _TuftingGunPainter();
-    gunPainter.paint(canvas, gunSize);
+    canvas.translate(
+      head.dx,
+      head.dy - movement,
+    );
+
+    canvas.scale(
+      0.65,
+    );
+
+    const gunSize = Size(
+      80,
+      70,
+    );
+
+    const gunPainter =
+        _TuftingGunPainter();
+
+    gunPainter.paint(
+      canvas,
+      gunSize,
+    );
 
     canvas.restore();
   }
 
   @override
-  bool shouldRepaint(covariant _PathPainter oldDelegate) {
+  bool shouldRepaint(
+    covariant _PathPainter oldDelegate,
+  ) {
     return oldDelegate.points != points ||
+        oldDelegate.colorGroups != colorGroups ||
+        oldDelegate.gCode != gCode ||
         oldDelegate.headX != headX ||
         oldDelegate.headY != headY ||
+        oldDelegate.headZ != headZ ||
         oldDelegate.progressIndex != progressIndex ||
-        oldDelegate.needleProgress != needleProgress ||
+        oldDelegate.needleProgress !=
+            needleProgress ||
         oldDelegate.needleDown != needleDown;
   }
 }
@@ -578,9 +1533,16 @@ class _TuftingGunPainter extends CustomPainter {
   const _TuftingGunPainter();
 
   @override
-  void paint(Canvas canvas, Size size) {
+  void paint(
+    Canvas canvas,
+    Size size,
+  ) {
     final scale = size.width / 80.0;
-    canvas.scale(scale, scale);
+
+    canvas.scale(
+      scale,
+      scale,
+    );
 
     final bodyPaint = Paint()
       ..style = PaintingStyle.fill
@@ -596,19 +1558,34 @@ class _TuftingGunPainter extends CustomPainter {
 
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(15, 12, 42, 25),
+        const Rect.fromLTWH(
+          15,
+          12,
+          42,
+          25,
+        ),
         const Radius.circular(5),
       ),
       bodyPaint,
     );
 
     canvas.drawRect(
-      const Rect.fromLTWH(54, 17, 13, 14),
+      const Rect.fromLTWH(
+        54,
+        17,
+        13,
+        14,
+      ),
       metalPaint,
     );
 
     canvas.drawRect(
-      const Rect.fromLTWH(65, 22, 10, 3),
+      const Rect.fromLTWH(
+        65,
+        22,
+        10,
+        3,
+      ),
       darkPaint,
     );
 
@@ -619,11 +1596,19 @@ class _TuftingGunPainter extends CustomPainter {
       ..lineTo(31, 62)
       ..close();
 
-    canvas.drawPath(handle, bodyPaint);
+    canvas.drawPath(
+      handle,
+      bodyPaint,
+    );
 
     canvas.drawRRect(
       RRect.fromRectAndRadius(
-        const Rect.fromLTWH(27, 6, 20, 8),
+        const Rect.fromLTWH(
+          27,
+          6,
+          20,
+          8,
+        ),
         const Radius.circular(3),
       ),
       metalPaint,
@@ -631,5 +1616,9 @@ class _TuftingGunPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _TuftingGunPainter oldDelegate) => false;
+  bool shouldRepaint(
+    covariant _TuftingGunPainter oldDelegate,
+  ) {
+    return false;
+  }
 }

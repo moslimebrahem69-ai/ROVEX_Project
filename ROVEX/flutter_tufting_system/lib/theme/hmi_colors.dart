@@ -2,64 +2,138 @@ import 'package:flutter/material.dart';
 
 /// ROVEX Industrial HMI Design System.
 ///
-/// Premium graphite surfaces with restrained green machine accents.
-/// Machine-state colors remain semantic for fast and safe recognition.
+/// Provides shared colors for both dark and light application modes.
+/// Machine-state colors remain semantic across both modes.
 class HmiColors {
   const HmiColors._();
 
   // ============================================================
-  // BACKGROUND & SURFACES
+  // DARK THEME
   // ============================================================
 
-  /// Main application background.
-  static const Color bg = Color(0xFF111315);
+  /// Dark application background.
+  static const Color darkBg = Color(0xFF111315);
 
-  /// Main cards and panels.
-  static const Color panel = Color(0xFF191C1F);
+  /// Dark main cards and panels.
+  static const Color darkPanel = Color(0xFF191C1F);
 
-  /// Secondary and elevated panels.
-  static const Color panelAlt = Color(0xFF202428);
+  /// Dark secondary and elevated panels.
+  static const Color darkPanelAlt = Color(0xFF202428);
 
-  /// Highest elevation surface.
-  static const Color panelElevated = Color(0xFF292E33);
+  /// Dark highest elevation surface.
+  static const Color darkPanelElevated = Color(0xFF292E33);
 
-  /// Subtle surface used for hover and secondary interaction.
-  static const Color surfaceHover = Color(0xFF252A2F);
+  /// Dark hover surface.
+  static const Color darkSurfaceHover = Color(0xFF252A2F);
 
-  /// Strong surface used for selected controls.
-  static const Color surfaceActive = Color(0xFF30363C);
+  /// Dark active surface.
+  static const Color darkSurfaceActive = Color(0xFF30363C);
+
+  // ============================================================
+  // LIGHT THEME
+  // ============================================================
+
+  /// Light application background.
+  static const Color lightBg = Color(0xFFF3F5F4);
+
+  /// Light main cards and panels.
+  static const Color lightPanel = Color(0xFFFFFFFF);
+
+  /// Light secondary and elevated panels.
+  static const Color lightPanelAlt = Color(0xFFE8ECEA);
+
+  /// Light highest elevation surface.
+  static const Color lightPanelElevated = Color(0xFFDDE3E0);
+
+  /// Light hover surface.
+  static const Color lightSurfaceHover = Color(0xFFE2E7E4);
+
+  /// Light active surface.
+  static const Color lightSurfaceActive = Color(0xFFD4DCD8);
+
+  // ============================================================
+  // BACKGROUND & SURFACES - CURRENT THEME COMPATIBILITY
+  // ============================================================
+
+  /// Current default application background.
+  static const Color bg = darkBg;
+
+  /// Current default main panel.
+  static const Color panel = darkPanel;
+
+  /// Current default secondary panel.
+  static const Color panelAlt = darkPanelAlt;
+
+  /// Current default elevated panel.
+  static const Color panelElevated = darkPanelElevated;
+
+  /// Current default hover surface.
+  static const Color surfaceHover = darkSurfaceHover;
+
+  /// Current default active surface.
+  static const Color surfaceActive = darkSurfaceActive;
 
   // ============================================================
   // BORDERS & DIVIDERS
   // ============================================================
 
-  /// Standard panel border.
-  static const Color border = Color(0xFF30363B);
+  /// Dark standard panel border.
+  static const Color darkBorder = Color(0xFF30363B);
 
-  /// Stronger border for selected and focused controls.
-  static const Color borderStrong = Color(0xFF485057);
+  /// Light standard panel border.
+  static const Color lightBorder = Color(0xFFC8D0CC);
 
-  /// Very subtle divider.
-  static const Color divider = Color(0xFF272C30);
+  /// Dark stronger border.
+  static const Color darkBorderStrong = Color(0xFF485057);
+
+  /// Light stronger border.
+  static const Color lightBorderStrong = Color(0xFF9FAAA4);
+
+  /// Dark subtle divider.
+  static const Color darkDivider = Color(0xFF272C30);
+
+  /// Light subtle divider.
+  static const Color lightDivider = Color(0xFFD7DDDA);
 
   /// Accent border used for active controls.
   static const Color borderAccent = Color(0xFF318C59);
+
+  /// Current default border.
+  static const Color border = darkBorder;
+
+  /// Current default strong border.
+  static const Color borderStrong = darkBorderStrong;
+
+  /// Current default divider.
+  static const Color divider = darkDivider;
 
   // ============================================================
   // BUTTONS / SOFTKEYS
   // ============================================================
 
-  /// Normal button surface.
-  static const Color softkey = Color(0xFF252A2F);
+  /// Dark normal button surface.
+  static const Color darkSoftkey = Color(0xFF252A2F);
 
-  /// Hover / focused button surface.
-  static const Color softkeyHover = Color(0xFF30363C);
+  /// Light normal button surface.
+  static const Color lightSoftkey = Color(0xFFE5E9E7);
 
-  /// Pressed / active button surface.
-  static const Color softkeyActive = Color(0xFF394148);
+  /// Dark hover button surface.
+  static const Color darkSoftkeyHover = Color(0xFF30363C);
 
-  /// Disabled button surface.
-  static const Color softkeyDisabled = Color(0xFF1D2023);
+  /// Light hover button surface.
+  static const Color lightSoftkeyHover = Color(0xFFD9DFDC);
+
+  /// Dark pressed button surface.
+  static const Color darkSoftkeyActive = Color(0xFF394148);
+
+  /// Light pressed button surface.
+  static const Color lightSoftkeyActive = Color(0xFFCBD4CF);
+
+  /// Dark disabled button surface.
+  static const Color darkSoftkeyDisabled = Color(0xFF1D2023);
+
+  /// Light disabled button surface.
+  static const Color lightSoftkeyDisabled = Color(0xFFDDE1DF);
 
   /// Main ROVEX interaction accent.
   static const Color accent = Color(0xFF32B86B);
@@ -68,7 +142,25 @@ class HmiColors {
   static const Color accentStrong = Color(0xFF43D27E);
 
   /// Dark accent surface.
-  static const Color accentSurface = Color(0xFF183A28);
+  static const Color darkAccentSurface = Color(0xFF183A28);
+
+  /// Light accent surface.
+  static const Color lightAccentSurface = Color(0xFFDDF3E7);
+
+  /// Current default button surface.
+  static const Color softkey = darkSoftkey;
+
+  /// Current default hover button surface.
+  static const Color softkeyHover = darkSoftkeyHover;
+
+  /// Current default active button surface.
+  static const Color softkeyActive = darkSoftkeyActive;
+
+  /// Current default disabled button surface.
+  static const Color softkeyDisabled = darkSoftkeyDisabled;
+
+  /// Current default accent surface.
+  static const Color accentSurface = darkAccentSurface;
 
   /// Compatibility alias.
   static const Color gold = accent;
@@ -80,20 +172,44 @@ class HmiColors {
   // TEXT
   // ============================================================
 
-  /// Main / primary text.
-  static const Color text = Color(0xFFF4F6F7);
+  /// Dark primary text.
+  static const Color darkText = Color(0xFFF4F6F7);
 
-  /// Secondary text.
-  static const Color textDim = Color(0xFFB2B9BF);
+  /// Light primary text.
+  static const Color lightText = Color(0xFF18201C);
 
-  /// Muted text.
-  static const Color textMute = Color(0xFF747C83);
+  /// Dark secondary text.
+  static const Color darkTextDim = Color(0xFFB2B9BF);
 
-  /// Disabled text.
-  static const Color textDisabled = Color(0xFF555C62);
+  /// Light secondary text.
+  static const Color lightTextDim = Color(0xFF59645E);
+
+  /// Dark muted text.
+  static const Color darkTextMute = Color(0xFF747C83);
+
+  /// Light muted text.
+  static const Color lightTextMute = Color(0xFF7A8580);
+
+  /// Dark disabled text.
+  static const Color darkTextDisabled = Color(0xFF555C62);
+
+  /// Light disabled text.
+  static const Color lightTextDisabled = Color(0xFFA1AAA5);
 
   /// Text used on dark machine-state buttons.
   static const Color textOnDark = Color(0xFFFFFFFF);
+
+  /// Current default primary text.
+  static const Color text = darkText;
+
+  /// Current default secondary text.
+  static const Color textDim = darkTextDim;
+
+  /// Current default muted text.
+  static const Color textMute = darkTextMute;
+
+  /// Current default disabled text.
+  static const Color textDisabled = darkTextDisabled;
 
   // ============================================================
   // MACHINE STATUS COLORS
@@ -153,45 +269,96 @@ class HmiColors {
   // OVERLAYS / INTERACTION
   // ============================================================
 
-  /// Selection background.
-  static const Color selection = Color(0xFF30363C);
+  /// Dark selection background.
+  static const Color darkSelection = Color(0xFF30363C);
 
-  /// Focus background.
-  static const Color focus = Color(0xFF353C42);
+  /// Light selection background.
+  static const Color lightSelection = Color(0xFFD5DDD8);
+
+  /// Dark focus background.
+  static const Color darkFocus = Color(0xFF353C42);
+
+  /// Light focus background.
+  static const Color lightFocus = Color(0xFFC9D3CD);
 
   /// Disabled overlay.
   static const Color disabledOverlay = Color(0x66000000);
 
-  /// Modal / dialog background.
-  static const Color dialog = Color(0xFF202428);
+  /// Dark modal / dialog background.
+  static const Color darkDialog = Color(0xFF202428);
 
-  /// Scrim behind dialogs.
-  static const Color scrim = Color(0xB3000000);
+  /// Light modal / dialog background.
+  static const Color lightDialog = Color(0xFFFFFFFF);
 
-  /// Hover overlay.
-  static const Color hoverOverlay = Color(0x0FFFFFFF);
+  /// Dark scrim behind dialogs.
+  static const Color darkScrim = Color(0xB3000000);
 
-  /// Pressed overlay.
-  static const Color pressedOverlay = Color(0x18FFFFFF);
+  /// Light scrim behind dialogs.
+  static const Color lightScrim = Color(0x66000000);
+
+  /// Dark hover overlay.
+  static const Color darkHoverOverlay = Color(0x0FFFFFFF);
+
+  /// Light hover overlay.
+  static const Color lightHoverOverlay = Color(0x0F000000);
+
+  /// Dark pressed overlay.
+  static const Color darkPressedOverlay = Color(0x18FFFFFF);
+
+  /// Light pressed overlay.
+  static const Color lightPressedOverlay = Color(0x18000000);
+
+  /// Current default selection background.
+  static const Color selection = darkSelection;
+
+  /// Current default focus background.
+  static const Color focus = darkFocus;
+
+  /// Current default dialog background.
+  static const Color dialog = darkDialog;
+
+  /// Current default scrim.
+  static const Color scrim = darkScrim;
+
+  /// Current default hover overlay.
+  static const Color hoverOverlay = darkHoverOverlay;
+
+  /// Current default pressed overlay.
+  static const Color pressedOverlay = darkPressedOverlay;
 
   // ============================================================
   // VISUALIZATION
   // ============================================================
 
-  /// 3D / toolpath preview background.
-  static const Color previewBg = Color(0xFF0E1012);
+  /// Dark 3D / toolpath preview background.
+  static const Color darkPreviewBg = Color(0xFF0E1012);
 
-  /// 3D preview grid.
-  static const Color previewGrid = Color(0xFF252B30);
+  /// Light 3D / toolpath preview background.
+  static const Color lightPreviewBg = Color(0xFFF7F9F8);
 
-  /// 3D preview axis.
-  static const Color previewAxis = Color(0xFF626A72);
+  /// Dark 3D preview grid.
+  static const Color darkPreviewGrid = Color(0xFF252B30);
 
-  /// Neutral drawing / path color.
-  static const Color previewPath = Color(0xFFAEB6BC);
+  /// Light 3D preview grid.
+  static const Color lightPreviewGrid = Color(0xFFD9DFDC);
 
-  /// Selected / active path.
-  static const Color previewPathActive = Color(0xFFE5E9EB);
+  /// Dark 3D preview axis.
+  static const Color darkPreviewAxis = Color(0xFF626A72);
+
+  /// Light 3D preview axis.
+  static const Color lightPreviewAxis = Color(0xFF89958F);
+
+  /// Neutral drawing / path color for dark mode.
+  static const Color darkPreviewPath = Color(0xFFAEB6BC);
+
+  /// Neutral drawing / path color for light mode.
+  static const Color lightPreviewPath = Color(0xFF59645E);
+
+  /// Selected / active path for dark mode.
+  static const Color darkPreviewPathActive = Color(0xFFE5E9EB);
+
+  /// Selected / active path for light mode.
+  static const Color lightPreviewPathActive = Color(0xFF24332B);
 
   /// Active toolhead / needle.
   static const Color previewTool = Color(0xFF35C474);
@@ -202,21 +369,60 @@ class HmiColors {
   /// Remaining toolpath.
   static const Color previewRemaining = Color(0xFF687178);
 
+  /// Current default preview background.
+  static const Color previewBg = darkPreviewBg;
+
+  /// Current default preview grid.
+  static const Color previewGrid = darkPreviewGrid;
+
+  /// Current default preview axis.
+  static const Color previewAxis = darkPreviewAxis;
+
+  /// Current default preview path.
+  static const Color previewPath = darkPreviewPath;
+
+  /// Current default active preview path.
+  static const Color previewPathActive = darkPreviewPathActive;
+
   // ============================================================
   // STATUS SURFACES
   // ============================================================
 
-  /// Ready status surface.
-  static const Color readySurface = Color(0xFF173A28);
+  /// Dark ready status surface.
+  static const Color darkReadySurface = Color(0xFF173A28);
 
-  /// Warning status surface.
-  static const Color warnSurface = Color(0xFF3D3018);
+  /// Light ready status surface.
+  static const Color lightReadySurface = Color(0xFFDDF3E7);
 
-  /// Alarm status surface.
-  static const Color alarmSurface = Color(0xFF3E1D1B);
+  /// Dark warning status surface.
+  static const Color darkWarnSurface = Color(0xFF3D3018);
 
-  /// Emergency stop surface.
-  static const Color estopSurface = Color(0xFF431918);
+  /// Light warning status surface.
+  static const Color lightWarnSurface = Color(0xFFF8EBCB);
+
+  /// Dark alarm status surface.
+  static const Color darkAlarmSurface = Color(0xFF3E1D1B);
+
+  /// Light alarm status surface.
+  static const Color lightAlarmSurface = Color(0xFFF8DCD9);
+
+  /// Dark emergency stop surface.
+  static const Color darkEstopSurface = Color(0xFF431918);
+
+  /// Light emergency stop surface.
+  static const Color lightEstopSurface = Color(0xFFF5D5D2);
+
+  /// Current default ready surface.
+  static const Color readySurface = darkReadySurface;
+
+  /// Current default warning surface.
+  static const Color warnSurface = darkWarnSurface;
+
+  /// Current default alarm surface.
+  static const Color alarmSurface = darkAlarmSurface;
+
+  /// Current default emergency stop surface.
+  static const Color estopSurface = darkEstopSurface;
 
   // ============================================================
   // COMMON SHADOWS
