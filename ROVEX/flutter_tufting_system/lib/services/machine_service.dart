@@ -64,7 +64,7 @@ class MachineService extends ChangeNotifier {
   String _gCode = '';
 
   /// Pitch used by the bitmap -> stitch path extractor.
-  double _extractPitchMm = 10;
+  double _extractPitchMm = 3;//10
 
   /// All points extracted from the original design.
   List<TuftPoint> _programPoints = [];
@@ -1738,6 +1738,25 @@ class MachineService extends ChangeNotifier {
     if (input.isEmpty) {
       return <TuftPoint>[];
     }
+
+    //new
+    final colorOrders = input
+        .map((point) => point.colorOrder)
+        .whereType<int>()
+        .toSet();
+
+    if (colorOrders.length > 1) {
+      final grouped = <int, List<TuftPoint>>{};
+      for (final point in input) {
+        grouped.putIfAbsent(point.colorOrder!, () => []).add(point);
+      }
+
+      final result = <TuftPoint>[];
+      for (final group in grouped.values) {
+        result.addAll(_optimizeNearest(group));
+      }
+      return result;
+    } //new
 
     final remaining =
         List<TuftPoint>.from(input);
