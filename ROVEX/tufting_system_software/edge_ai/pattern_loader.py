@@ -54,7 +54,12 @@ def _load_csv(path: str) -> List[Point]:
     with open(path, "r", encoding="utf-8", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            points.append((float(row["x"]), float(row["y"])))
+           # points.append((float(row["x"]), float(row["y"])))
+              x_key = "x" if "x" in row else "x_mm"#new
+            y_key = "y" if "y" in row else "y_mm"#new
+            if x_key not in row or y_key not in row:#new
+                raise ValueError("CSV must contain x,y or x_mm,y_mm columns.")#new
+            points.append((float(row[x_key]), float(row[y_key]))) #new
     _validate(points)
     return points
 
