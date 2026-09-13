@@ -6,7 +6,7 @@ import 'package:image/image.dart' as img;
 import '../models/design.dart';
 
 class PathExtractor {
-  static const int _maxSide = 420;
+  static const int _maxSide = 720;//420
   static const int _maxColors = 8;
   static const int _alphaThreshold = 10;
   static const int _grayscaleTolerance = 12;
@@ -46,7 +46,7 @@ class PathExtractor {
         src,
         width: src.width >= src.height ? _maxSide : null,
         height: src.height > src.width ? _maxSide : null,
-        interpolation: img.Interpolation.average,
+        interpolation: img.Interpolation.,linear,//average
       );
     }
 
