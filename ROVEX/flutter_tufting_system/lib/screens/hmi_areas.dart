@@ -2,7 +2,7 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image/image.dart' as img;
+//import 'package:image/image.dart' as img;
 import 'package:provider/provider.dart';
 import '../l10n/l10n.dart';
 import '../models/machine_status.dart';
@@ -158,10 +158,10 @@ class DesignAreaBody extends StatefulWidget {
   State<DesignAreaBody> createState() => _DesignAreaBodyState();
 }
 class _DesignAreaBodyState extends State<DesignAreaBody> {
-  static const double _targetAspectRatio = 1.5 / 2.0;
+ // static const double _targetAspectRatio = 1.5 / 2.0;
   bool _dragging = false;
   bool _loadingDesign = false;
-  Uint8List _cropToTargetRatio(List<int> bytes) {
+ /* Uint8List _cropToTargetRatio(List<int> bytes) {
     final image = img.decodeImage(
       Uint8List.fromList(bytes),
     );
@@ -199,7 +199,7 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
     return Uint8List.fromList(
       img.encodePng(cropped),
     );
-  }
+  } */
   Future<void> _pick(MachineService service) async {
     try {
       final result = await FilePicker.platform.pickFiles(
@@ -263,11 +263,12 @@ class _DesignAreaBodyState extends State<DesignAreaBody> {
       );
       return;
     }
-    final croppedBytes = Uint8List.fromList(
+  /*  final croppedBytes = Uint8List.fromList(
       _cropToTargetRatio(bytes),
-    );
+    );*/
     await service.loadDesignImage(
-      croppedBytes,
+     // croppedBytes,
+       Uint8List.fromList(bytes),// new
       fileName,
     );
   }
